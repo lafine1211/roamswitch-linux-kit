@@ -77,6 +77,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url_report = client.audit_url_safety("https://apple.com.login-verify.xyz").await?;
     println!("{} {}", url_report.score, url_report.risk_level); // e.g. 20, "dangerous"
 
+    // Installed OS packages checked against a local, network-free CVE map.
+    let pkg_cve = client.package_cve_scan().await?;
+    for finding in &pkg_cve.findings {
+        println!("{} {}: {} (CVSS {})", finding.package, finding.installed_version, finding.cve_id, finding.cvss_score);
+    }
+
+    // Critical Path FIM: re-hashes ~150 critical system files/binaries and
+    // compares against the persisted baseline (errors if no baseline has
+    // ever been captured on this host via `sudo roamswitch fim update`).
+    if let Ok(fim) = client.verify_fim().await {
+        println!("FIM: {} monitored, healthy={}", fim.total_monitored, fim.is_healthy);
+    }
+
     Ok(())
 }
 ```
@@ -115,6 +128,9 @@ impl RoamSwitchClient {
     pub async fn get_app_help(&self, query: Option<&str>, topic: Option<&str>) -> Result<KnowledgeSearchResult, RoamSwitchClientError>;
     pub async fn quarantine_status(&self) -> Result<QuarantineStatus, RoamSwitchClientError>;
     pub async fn canary_status(&self) -> Result<CanaryStatus, RoamSwitchClientError>;
+    pub async fn package_cve_scan(&self) -> Result<PackageCveScanResult, RoamSwitchClientError>;
+    pub async fn package_cve_scan_languages(&self, watched_folders: &[PathBuf]) -> Result<PackageCveScanLanguagesResult, RoamSwitchClientError>;
+    pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError>;
 }
 ```
 
@@ -128,6 +144,9 @@ impl RoamSwitchClient {
 - `audit_security_logs(hours)` — summarizes sudo/SSH/firewall/AppArmor/ClamAV log activity over the trailing window.
 - `get_app_help(query, topic)` — full-text search over RoamSwitch's offline knowledge base.
 - `quarantine_status()` / `canary_status()` — malware quarantine vault state / Ransomware Canary Guard state.
+- `package_cve_scan()` — audits installed OS packages (dpkg/pacman/rpm, auto-detected) against RoamSwitch's local, network-free CVE map.
+- `package_cve_scan_languages(watched_folders)` — audits language-ecosystem lockfiles (npm/PyPI/crates.io/etc.) under the given folders against the same local CVE map.
+- `verify_fim()` — read-only Critical Path FIM verification (~150 critical system files re-hashed and compared against the persisted baseline). Does not update or initialize the baseline — that requires root and is intentionally not exposed here. Errors if no baseline has ever been captured on this host.
 
 ### `SecurityReport`
 
@@ -161,6 +180,20 @@ impl RoamSwitchClient {
 `LinkAuditReport { original_url, final_url, redirect_chain: Vec<String>, domain, score: i32, risk_level, is_https: bool, risk_factors: Vec<LinkRiskFactor>, verdict: Verdict }`.
 
 `LinkRiskFactor`: `title`, `detail`, `is_severe: bool`. `Verdict` is `Allow` / `Warn` / `Block` — the actual enforcement decision RoamSwitch's inline link filter would make (`risk_level` above is for display).
+
+### `PackageCveScanResult` / `PackageCveScanLanguagesResult`
+
+`PackageCveScanResult { map_installed: bool, map_version: String, findings: Vec<PackageCveFinding> }` — `map_installed: false` means "no local CVE data yet", distinct from "ran, found nothing".
+
+`PackageCveScanLanguagesResult { scanned_folder_count: usize, findings: Vec<PackageCveFinding> }`.
+
+`PackageCveFinding`: `ecosystem` (e.g. `"npm"`, `"PyPI"`, `"crates.io"`, or the OS package manager name), `package`, `installed_version`, `cve_id`, `cvss_score: f64`, `fixed_version`, `summary`.
+
+### `FimReport`
+
+`FimReport { total_monitored: usize, passed_count: usize, violations: Vec<FimViolation>, last_checked_at: String, is_healthy: bool, skipped_unreadable: usize }` — `skipped_unreadable` counts baseline entries that couldn't be read due to insufficient privileges (e.g. `/etc/shadow` without root); this is not tampering and doesn't affect `is_healthy`. Field names here are plain snake_case, not camelCase like the other types on this page — that's the actual wire format `roamswitch-mcp` sends for this tool.
+
+`FimViolation`: `path`, `violation_type` (`"modified"` / `"deleted"` / `"permission_changed"` / `"new_file"`), `expected_sha256: Option<String>`, `actual_sha256: Option<String>`, `detected_at`.
 
 ### `RoamSwitchClientError`
 

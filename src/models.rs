@@ -303,6 +303,66 @@ pub struct CanaryIncident {
     pub is_contained: bool,
 }
 
+/// Wire format for `run_package_cve_scan` (OS packages — dpkg/pacman/rpm)
+/// and `run_package_cve_scan_languages` (npm/PyPI/crates.io/etc. lockfiles),
+/// both matched against a local, network-free CVE map.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageCveScanResult {
+    pub map_installed: bool,
+    pub map_version: String,
+    pub findings: Vec<PackageCveFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageCveScanLanguagesResult {
+    pub scanned_folder_count: usize,
+    pub findings: Vec<PackageCveFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageCveFinding {
+    pub ecosystem: String,
+    pub package: String,
+    pub installed_version: String,
+    pub cve_id: String,
+    pub cvss_score: f64,
+    pub fixed_version: String,
+    pub summary: String,
+}
+
+/// Wire format for `verify_fim` — read-only Critical Path FIM verification
+/// (~150 critical system files/binaries re-hashed and compared against the
+/// persisted baseline). Does NOT update or initialize the baseline — that
+/// requires root and is a mutating operation intentionally not exposed via
+/// MCP. Field names are plain snake_case (not camelCase like most other
+/// types here), matching `roamswitch-core`'s `FimReport`/`FimViolation`
+/// exactly, which carry no `#[serde(rename_all)]` of their own.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FimReport {
+    pub total_monitored: usize,
+    pub passed_count: usize,
+    pub violations: Vec<FimViolation>,
+    pub last_checked_at: String,
+    pub is_healthy: bool,
+    /// Baseline entries that couldn't be read due to insufficient privileges
+    /// (e.g. `/etc/shadow` when running as a non-root user) — not tampering,
+    /// and doesn't affect `is_healthy`.
+    #[serde(default)]
+    pub skipped_unreadable: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FimViolation {
+    pub path: String,
+    pub violation_type: String,
+    pub expected_sha256: Option<String>,
+    pub actual_sha256: Option<String>,
+    pub detected_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CanaryStatus {
     #[serde(rename = "isEnabled")]

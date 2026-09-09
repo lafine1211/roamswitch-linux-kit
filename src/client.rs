@@ -183,6 +183,36 @@ impl RoamSwitchClient {
         self.call_tool("get_canary_status", serde_json::json!({})).await
     }
 
+    /// Audits installed OS packages (dpkg/pacman/rpm, auto-detected) against
+    /// RoamSwitch's local, network-free CVE map.
+    pub async fn package_cve_scan(&self) -> Result<PackageCveScanResult, RoamSwitchClientError> {
+        self.call_tool("run_package_cve_scan", serde_json::json!({})).await
+    }
+
+    /// Audits language-ecosystem lockfiles (npm/PyPI/crates.io/etc.) under
+    /// the given folders against the same local CVE map. Sends no network
+    /// requests.
+    pub async fn package_cve_scan_languages(
+        &self,
+        watched_folders: &[PathBuf],
+    ) -> Result<PackageCveScanLanguagesResult, RoamSwitchClientError> {
+        let folders: Vec<String> = watched_folders.iter().map(|p| p.to_string_lossy().to_string()).collect();
+        self.call_tool(
+            "run_package_cve_scan_languages",
+            serde_json::json!({ "watchedFolders": folders }),
+        )
+        .await
+    }
+
+    /// Verifies the integrity of ~150 critical system binaries/configs
+    /// against RoamSwitch's persisted baseline (read-only — does not update
+    /// or initialize the baseline; that requires root and 'roamswitch fim
+    /// update'/'init', a mutating operation intentionally not exposed here).
+    /// Errors if no baseline has ever been captured on this host.
+    pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError> {
+        self.call_tool("verify_fim", serde_json::json!({})).await
+    }
+
     async fn call_tool<T: serde::de::DeserializeOwned>(
         &self,
         tool_name: &str,

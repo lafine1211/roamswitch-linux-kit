@@ -59,4 +59,25 @@ async fn test_roamswitch_client() {
 
     let c_status = client.canary_status().await.expect("canary_status");
     assert!(c_status.monitored_files_count > 0);
+
+    // The embedded CVE map baseline can legitimately ship as an empty seed
+    // until the daily updater installs real data, so only assert the call
+    // succeeds and returns a well-formed result.
+    let pkg_cve = client.package_cve_scan().await.expect("package_cve_scan");
+    println!("Package CVE scan: map_installed={}, {} finding(s)", pkg_cve.map_installed, pkg_cve.findings.len());
+
+    let lang_cve = client
+        .package_cve_scan_languages(&[])
+        .await
+        .expect("package_cve_scan_languages");
+    assert_eq!(lang_cve.scanned_folder_count, 0);
+    assert!(lang_cve.findings.is_empty());
+
+    // A baseline may not exist yet on this host (never `sudo roamswitch fim
+    // update`'d) — verify_fim() errors rather than fabricating a report,
+    // which is a legitimate outcome, not a bug, so tolerate either result.
+    match client.verify_fim().await {
+        Ok(report) => assert!(report.total_monitored > 0),
+        Err(e) => println!("verify_fim returned an error (no baseline provisioned?): {e}"),
+    }
 }

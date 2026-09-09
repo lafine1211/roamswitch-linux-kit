@@ -38,6 +38,9 @@ impl RoamSwitchClient {
     pub async fn get_app_help(&self, query: Option<&str>, topic: Option<&str>) -> Result<KnowledgeSearchResult, RoamSwitchClientError>;
     pub async fn quarantine_status(&self) -> Result<QuarantineStatus, RoamSwitchClientError>;
     pub async fn canary_status(&self) -> Result<CanaryStatus, RoamSwitchClientError>;
+    pub async fn package_cve_scan(&self) -> Result<PackageCveScanResult, RoamSwitchClientError>;
+    pub async fn package_cve_scan_languages(&self, watched_folders: &[PathBuf]) -> Result<PackageCveScanLanguagesResult, RoamSwitchClientError>;
+    pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError>;
 }
 ```
 
@@ -145,9 +148,9 @@ pub struct LinkRiskFactor {
 pub enum Verdict { Allow, Warn, Block }
 ```
 
-### `SecretAuditResult`, `SecurityLogSummary`, `KnowledgeSearchResult`, `QuarantineStatus`, `CanaryStatus`, `ActiveVulnScanResult`
+### `SecretAuditResult`, `SecurityLogSummary`, `KnowledgeSearchResult`, `QuarantineStatus`, `CanaryStatus`, `ActiveVulnScanResult`, `PackageCveScanResult`, `PackageCveScanLanguagesResult`, `FimReport`
 
-See [`src/models.rs`](src/models.rs) for the complete field list of these six bonus response types (beyond the four macOS RoamSwitchKit also has) — field names follow the same `snake_case`-Rust / `camelCase`-wire convention as everything above.
+See [`src/models.rs`](src/models.rs) for the complete field list of these nine bonus response types (beyond the four macOS RoamSwitchKit also has) — field names follow the same `snake_case`-Rust / `camelCase`-wire convention as everything above, **except `FimReport`/`FimViolation`, which are plain snake_case on the wire too** (no `camelCase` rename — that's the actual JSON `verify_fim` sends, not an inconsistency to "fix").
 
 ### `RoamSwitchClientError`
 
