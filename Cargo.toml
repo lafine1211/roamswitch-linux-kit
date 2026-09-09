@@ -1,0 +1,24 @@
+[package]
+name = "roamswitch-linux-kit"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lafine Systems Design <contact@lafine.net>"]
+license = "MIT"
+repository = "https://github.com/lafine1211/roamswitch-linux-kit"
+description = "Read-only async client for RoamSwitch's local Linux network security diagnostics"
+readme = "README.md"
+keywords = ["roamswitch", "security", "diagnostics", "client"]
+categories = ["api-bindings"]
+
+[lib]
+name = "roamswitch_linux_kit"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["process", "io-util", "io-std", "time", "rt", "macros"] }
+thiserror = "1.0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
