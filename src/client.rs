@@ -213,6 +213,21 @@ impl RoamSwitchClient {
         self.call_tool("verify_fim", serde_json::json!({})).await
     }
 
+    /// Port Anomaly Guard's incident log: newly-appearing, externally-exposed
+    /// listening executables that were auto-blocked (timestamp, process,
+    /// PID, port), plus the current auto-/user-isolated port sets.
+    pub async fn get_port_anomaly_incidents(&self) -> Result<PortAnomalyIncidentsSummary, RoamSwitchClientError> {
+        self.call_tool("get_port_anomaly_incidents", serde_json::json!({})).await
+    }
+
+    /// Server Edition only. eBPF Runtime Guard's containment history — each
+    /// alert that actually triggered process isolation, a freeze, or a full
+    /// host Air-Gap lockdown — plus the current containment status. This is
+    /// the primary trigger reason behind an Air-Gap lockdown.
+    pub async fn get_ebpf_incidents(&self) -> Result<EbpfIncidentsSummary, RoamSwitchClientError> {
+        self.call_tool("get_ebpf_incidents", serde_json::json!({})).await
+    }
+
     async fn call_tool<T: serde::de::DeserializeOwned>(
         &self,
         tool_name: &str,

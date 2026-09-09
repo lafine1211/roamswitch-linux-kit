@@ -41,6 +41,8 @@ impl RoamSwitchClient {
     pub async fn package_cve_scan(&self) -> Result<PackageCveScanResult, RoamSwitchClientError>;
     pub async fn package_cve_scan_languages(&self, watched_folders: &[PathBuf]) -> Result<PackageCveScanLanguagesResult, RoamSwitchClientError>;
     pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError>;
+    pub async fn get_port_anomaly_incidents(&self) -> Result<PortAnomalyIncidentsSummary, RoamSwitchClientError>;
+    pub async fn get_ebpf_incidents(&self) -> Result<EbpfIncidentsSummary, RoamSwitchClientError>;  // Server Edition only
 }
 ```
 
@@ -151,6 +153,63 @@ pub enum Verdict { Allow, Warn, Block }
 ### `SecretAuditResult`, `SecurityLogSummary`, `KnowledgeSearchResult`, `QuarantineStatus`, `CanaryStatus`, `ActiveVulnScanResult`, `PackageCveScanResult`, `PackageCveScanLanguagesResult`, `FimReport`
 
 See [`src/models.rs`](src/models.rs) for the complete field list of these nine bonus response types (beyond the four macOS RoamSwitchKit also has) — field names follow the same `snake_case`-Rust / `camelCase`-wire convention as everything above, **except `FimReport`/`FimViolation`, which are plain snake_case on the wire too** (no `camelCase` rename — that's the actual JSON `verify_fim` sends, not an inconsistency to "fix").
+
+### `PortAnomalyIncidentsSummary` / `EbpfIncidentsSummary`
+
+```rust
+// Plain snake_case on the wire (same exception as FimReport above): mirrors
+// an existing on-disk daemon state file, not a shape we're free to rename.
+pub struct PortAnomalyIncidentsSummary {
+    pub incidents: Vec<PortAnomalyIncident>,
+    pub auto_isolated_ports: Vec<u16>,
+    pub user_isolated_ports: Vec<u16>,
+    pub baseline_captured: bool,
+}
+
+pub struct PortAnomalyIncident {
+    pub timestamp: String,
+    pub identity: String,      // the executable identity string that was flagged
+    pub proc_name: String,
+    pub pid: i32,
+    pub port: u16,
+}
+
+// Server Edition only.
+pub struct EbpfIncidentsSummary {
+    pub current_status: ServerQuarantineStatus,
+    pub incidents: Vec<EbpfIncidentRecord>,
+}
+
+pub struct ServerQuarantineStatus {
+    pub is_isolated: bool,
+    pub isolation_mode: String,        // "none" | "process" | "host_with_maintenance_ssh" | "host_all"
+    pub isolated_pids: Vec<i32>,
+    pub isolated_cgroups: Vec<String>,
+    pub active_maintenance_ports: Vec<u16>,
+    pub whitelist_ips: Vec<String>,
+    pub last_action_time: Option<String>,
+}
+
+pub struct EbpfIncidentRecord {
+    pub event: EbpfAlertEvent,
+    pub action_taken: String,          // e.g. "Process Frozen (SIGSTOP) + Network Blocked"
+}
+
+pub struct EbpfAlertEvent {
+    pub timestamp: String,
+    pub priority: String,              // "Debug" | "Informational" | "Notice" | "Warning" | "Error" | "Critical" | "Alert" | "Emergency"
+    pub rule: String,
+    pub proc_name: Option<String>,
+    pub proc_pid: Option<i32>,
+    pub proc_cmdline: Option<String>,
+    pub container_id: Option<String>,
+    pub user_name: Option<String>,
+    pub fd_sip: Option<String>,
+    pub fd_sport: Option<u16>,
+    pub fd_dip: Option<String>,
+    pub fd_dport: Option<u16>,
+}
+```
 
 ### `RoamSwitchClientError`
 

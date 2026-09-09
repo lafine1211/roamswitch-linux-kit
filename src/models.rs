@@ -354,6 +354,67 @@ pub struct FimReport {
     pub skipped_unreadable: usize,
 }
 
+/// Wire format for `get_port_anomaly_incidents`. Plain snake_case (not
+/// camelCase like most other types here), matching `FimReport`/
+/// `FimViolation`: this mirrors an existing on-disk state file
+/// (`/var/lib/roamswitch/port_guard.json`) the daemon already writes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PortAnomalyIncident {
+    pub timestamp: String,
+    pub identity: String,
+    pub proc_name: String,
+    pub pid: i32,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct PortAnomalyIncidentsSummary {
+    pub incidents: Vec<PortAnomalyIncident>,
+    pub auto_isolated_ports: Vec<u16>,
+    pub user_isolated_ports: Vec<u16>,
+    pub baseline_captured: bool,
+}
+
+/// Server Edition only. Wire format for `get_ebpf_incidents`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EbpfAlertEvent {
+    pub timestamp: String,
+    pub priority: String,
+    pub rule: String,
+    pub proc_name: Option<String>,
+    pub proc_pid: Option<i32>,
+    pub proc_cmdline: Option<String>,
+    pub container_id: Option<String>,
+    pub user_name: Option<String>,
+    pub fd_sip: Option<String>,
+    pub fd_sport: Option<u16>,
+    pub fd_dip: Option<String>,
+    pub fd_dport: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EbpfIncidentRecord {
+    pub event: EbpfAlertEvent,
+    pub action_taken: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ServerQuarantineStatus {
+    pub is_isolated: bool,
+    pub isolation_mode: String,
+    pub isolated_pids: Vec<i32>,
+    pub isolated_cgroups: Vec<String>,
+    pub active_maintenance_ports: Vec<u16>,
+    pub whitelist_ips: Vec<String>,
+    pub last_action_time: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EbpfIncidentsSummary {
+    pub current_status: ServerQuarantineStatus,
+    pub incidents: Vec<EbpfIncidentRecord>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FimViolation {
     pub path: String,

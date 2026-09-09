@@ -131,6 +131,8 @@ impl RoamSwitchClient {
     pub async fn package_cve_scan(&self) -> Result<PackageCveScanResult, RoamSwitchClientError>;
     pub async fn package_cve_scan_languages(&self, watched_folders: &[PathBuf]) -> Result<PackageCveScanLanguagesResult, RoamSwitchClientError>;
     pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError>;
+    pub async fn get_port_anomaly_incidents(&self) -> Result<PortAnomalyIncidentsSummary, RoamSwitchClientError>;
+    pub async fn get_ebpf_incidents(&self) -> Result<EbpfIncidentsSummary, RoamSwitchClientError>;
 }
 ```
 
@@ -147,6 +149,8 @@ impl RoamSwitchClient {
 - `package_cve_scan()` — audits installed OS packages (dpkg/pacman/rpm, auto-detected) against RoamSwitch's local, network-free CVE map.
 - `package_cve_scan_languages(watched_folders)` — audits language-ecosystem lockfiles (npm/PyPI/crates.io/etc.) under the given folders against the same local CVE map.
 - `verify_fim()` — read-only Critical Path FIM verification (~150 critical system files re-hashed and compared against the persisted baseline). Does not update or initialize the baseline — that requires root and is intentionally not exposed here. Errors if no baseline has ever been captured on this host.
+- `get_port_anomaly_incidents()` — Port Anomaly Guard's incident log: newly-appearing, externally-exposed listening executables (backdoors, C2 listeners, accidentally-`0.0.0.0` dev servers) that were auto-blocked, with timestamp/process/PID/port for each.
+- `get_ebpf_incidents()` — Server Edition only. eBPF Runtime Guard's containment history: each alert that actually triggered process isolation, a freeze, or a full host Air-Gap lockdown, plus the current containment status. This is the primary trigger reason behind an Air-Gap lockdown, which no other tool exposes — useful for offline triage right after one fires, since this crate never touches the network either.
 
 ### `SecurityReport`
 
@@ -186,6 +190,22 @@ impl RoamSwitchClient {
 `PackageCveScanResult { map_installed: bool, map_version: String, findings: Vec<PackageCveFinding> }` — `map_installed: false` means "no local CVE data yet", distinct from "ran, found nothing".
 
 `PackageCveScanLanguagesResult { scanned_folder_count: usize, findings: Vec<PackageCveFinding> }`.
+
+### `PortAnomalyIncidentsSummary`
+
+`PortAnomalyIncidentsSummary { incidents: Vec<PortAnomalyIncident>, auto_isolated_ports: Vec<u16>, user_isolated_ports: Vec<u16>, baseline_captured: bool }`. Field names here are plain snake_case (not camelCase like most other types here), matching `FimReport`/`FimViolation` — this mirrors the wire format of an existing on-disk state file the daemon already writes, not a shape we're free to name however we like.
+
+`PortAnomalyIncident`: `timestamp`, `identity` (the executable identity string that was flagged), `proc_name`, `pid: i32`, `port: u16`.
+
+### `EbpfIncidentsSummary`
+
+Server Edition only. `EbpfIncidentsSummary { current_status: ServerQuarantineStatus, incidents: Vec<EbpfIncidentRecord> }`.
+
+`ServerQuarantineStatus`: `is_isolated: bool`, `isolation_mode` (`"none"` / `"process"` / `"host_with_maintenance_ssh"` / `"host_all"`), `isolated_pids: Vec<i32>`, `isolated_cgroups: Vec<String>`, `active_maintenance_ports: Vec<u16>`, `whitelist_ips: Vec<String>`, `last_action_time: Option<String>`.
+
+`EbpfIncidentRecord`: `event: EbpfAlertEvent`, `action_taken` (e.g. `"Process Frozen (SIGSTOP) + Network Blocked"`, `"Pinpoint Process Isolated"`).
+
+`EbpfAlertEvent`: `timestamp`, `priority` (`"Debug"` / `"Informational"` / `"Notice"` / `"Warning"` / `"Error"` / `"Critical"` / `"Alert"` / `"Emergency"`), `rule`, `proc_name: Option<String>`, `proc_pid: Option<i32>`, `proc_cmdline: Option<String>`, `container_id: Option<String>`, `user_name: Option<String>`, `fd_sip: Option<String>`, `fd_sport: Option<u16>`, `fd_dip: Option<String>`, `fd_dport: Option<u16>`.
 
 `PackageCveFinding`: `ecosystem` (e.g. `"npm"`, `"PyPI"`, `"crates.io"`, or the OS package manager name), `package`, `installed_version`, `cve_id`, `cvss_score: f64`, `fixed_version`, `summary`.
 

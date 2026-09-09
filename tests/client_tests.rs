@@ -80,4 +80,15 @@ async fn test_roamswitch_client() {
         Ok(report) => assert!(report.total_monitored > 0),
         Err(e) => println!("verify_fim returned an error (no baseline provisioned?): {e}"),
     }
+
+    // The daemon may not have run a scan yet on this host, which is a
+    // legitimate empty-default state, not an error.
+    let pa = client.get_port_anomaly_incidents().await.expect("get_port_anomaly_incidents");
+    println!("Port anomaly: baseline_captured={}, {} incident(s)", pa.baseline_captured, pa.incidents.len());
+
+    // Server Edition only — a Client Edition host has no server-daemon, so
+    // this legitimately returns an all-empty "not isolated" default.
+    let ebpf = client.get_ebpf_incidents().await.expect("get_ebpf_incidents");
+    assert!(!ebpf.current_status.is_isolated);
+    println!("eBPF: {} incident(s), isolated={}", ebpf.incidents.len(), ebpf.current_status.is_isolated);
 }
