@@ -38,14 +38,12 @@ Typical uses: a sync app pausing background transfers on an untrusted network, a
 
 ## Installation
 
-This crate is not yet published anywhere (no crates.io release, no public git repository). Once it is, it will be installable as a git dependency:
+Not yet published to crates.io — add it as a git dependency in your `Cargo.toml`:
 
 ```toml
 [dependencies]
 roamswitch-linux-kit = { git = "https://github.com/lafine1211/roamswitch-linux-kit", tag = "v0.1.0" }
 ```
-
-Until then, depend on it via a local `path = "..."` entry if you have this repository checked out.
 
 ## Usage
 

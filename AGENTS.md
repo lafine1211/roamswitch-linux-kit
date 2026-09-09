@@ -13,8 +13,6 @@ A read-only async Rust client for RoamSwitch (a Linux network-security tool, htt
 
 ## Installation
 
-Not yet published anywhere publicly. Once it is, it will be installable as:
-
 ```toml
 [dependencies]
 roamswitch-linux-kit = { git = "https://github.com/lafine1211/roamswitch-linux-kit", tag = "v0.1.0" }
