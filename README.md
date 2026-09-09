@@ -119,7 +119,7 @@ impl RoamSwitchClient {
 ```
 
 - `new(executable_path, timeout)` — `executable_path: None` searches standard install locations; `timeout` defaults to 30s. On expiry the subprocess is killed (dropped) and the call returns `.TimedOut`.
-- `security_report()` / `server_security_report()` — full local audit; the latter runs the Server Edition's 27-check profile (kernel hardening, container isolation, kernel CVE exposure, eBPF LSM) instead of the desktop client's 24 checks.
+- `security_report()` / `server_security_report()` — full local audit; the latter runs the Server Edition's 28-check profile (kernel hardening, container isolation, kernel CVE exposure, eBPF LSM) instead of the desktop client's 24 checks.
 - `exposed_ports(include_local_only)` — lists listening TCP ports. Ports exposed beyond localhost are always fully audited; pass `true` to also include localhost-only ports (returned without the slower per-port audit).
 - `run_active_vuln_scan()` — opt-in, non-destructive reachability verification against `127.0.0.1` only. Returns `enabled: false` and no findings unless the user has set `active_vuln_scan_enabled: true` in RoamSwitch's own config.
 - `guard_status()` — current active security level, trusted-network status, and each optional guard's on/off state.

@@ -95,7 +95,7 @@ impl RoamSwitchClient {
         self.call_tool("get_security_report", serde_json::json!({})).await
     }
 
-    /// Runs the Server Edition audit (27 checks: kernel hardening, Docker
+    /// Runs the Server Edition audit (28 checks: kernel hardening, Docker
     /// and container runtime isolation, kernel CVE exposure, eBPF LSM, etc.)
     /// instead of the desktop client's 24-check audit.
     pub async fn server_security_report(&self) -> Result<SecurityReport, RoamSwitchClientError> {
