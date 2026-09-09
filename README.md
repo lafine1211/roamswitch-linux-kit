@@ -2,7 +2,7 @@
 
 A read-only async Rust client for [RoamSwitch](https://lafine.net)'s local Linux network security diagnostics.
 
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)](https://lafine.net/linux.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -10,14 +10,14 @@ This is the Linux counterpart to [RoamSwitchKit](https://github.com/lafine1211/R
 
 ## What is RoamSwitch?
 
-[**RoamSwitch**](https://lafine.net/linux.html) is a Linux network security tool that automatically defends your machine's network boundary — tightening `nft` rules on untrusted networks, watching for ARP spoofing, and flagging dev servers or databases you forgot are listening on `0.0.0.0`. It ships as a free Community Edition, with a paid Business tier for fleet management.
+[**RoamSwitch**](https://lafine.net/linux.html) is a Linux network security tool that automatically defends your machine's network boundary — tightening `nft` rules on untrusted networks, watching for ARP spoofing, and flagging dev servers or databases you forgot are listening on `0.0.0.0`. It ships today as a free Community Edition.
 
 Concretely, RoamSwitch continuously computes:
 
 - **Network trust** — is the current network one you've marked trusted, and what security level is currently active
 - **ARP spoofing** — gateway MAC fingerprint changes that indicate a man-in-the-middle attempt
 - **Exposed ports** — every TCP port listening beyond `localhost`, cross-referenced against a database of commonly-misconfigured services (Redis, MongoDB, Docker, Memcached, dev servers, local AI inference servers like Ollama/LM Studio) and probed for risky HTTP responses
-- **A local security posture score** — disk encryption, AppArmor, firewall (`nft`) state, Wi-Fi encryption, ARP status, exposed ports, kernel hardening, and guard configuration
+- **A local security posture score** (24 checks) — LUKS/dm-crypt disk encryption, AppArmor/SELinux, UEFI Secure Boot, sudo/SSH configuration, kernel `sysctl` hardening, Wi-Fi encryption, ARP spoofing, exposed ports, and malware/download guard configuration
 - **Offline URL/phishing analysis**, **secret-leak scanning**, **security log auditing**, **ransomware canary status**, and **quarantine vault status**
 
 RoamSwitch already exposes this same data to AI assistants (Claude Desktop, Claude Code, and other [MCP](https://modelcontextprotocol.io)-compatible clients) via a bundled read-only MCP server binary, `roamswitch-mcp` — see [lafine.net/mcp-setup](https://lafine.net/mcp-setup.html). **This crate is the same interface, wrapped for Rust code instead of an AI client**: it lets your own Linux app or script ask "is this machine's network safe right now?" and get back the exact data RoamSwitch itself computed, without reimplementing ARP inspection, port scanning, or log auditing yourself.
@@ -33,17 +33,19 @@ Typical uses: a sync app pausing background transfers on an untrusted network, a
 
 ## Requirements
 
-- Rust 1.75+ (async, `tokio` runtime)
+- A recent stable Rust toolchain (2021 edition; built and tested against 1.98) with the `tokio` async runtime
 - [RoamSwitch for Linux](https://lafine.net/linux.html) installed on the machine your code runs on, with `roamswitch-mcp` on `PATH` (typically `/usr/bin/roamswitch-mcp` from the official `.deb`/`.rpm` package)
 
 ## Installation
 
-Not yet published to crates.io — add it as a git dependency in your `Cargo.toml`:
+This crate is not yet published anywhere (no crates.io release, no public git repository). Once it is, it will be installable as a git dependency:
 
 ```toml
 [dependencies]
 roamswitch-linux-kit = { git = "https://github.com/lafine1211/roamswitch-linux-kit", tag = "v0.1.0" }
 ```
+
+Until then, depend on it via a local `path = "..."` entry if you have this repository checked out.
 
 ## Usage
 

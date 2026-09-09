@@ -8,10 +8,12 @@ A read-only async Rust client for RoamSwitch (a Linux network-security tool, htt
 
 ## Requirements
 
-- Rust 1.75+, `tokio` runtime
+- A recent stable Rust toolchain (2021 edition), `tokio` runtime
 - RoamSwitch for Linux must be installed on the machine the code runs on, with `roamswitch-mcp` reachable (sibling of your binary, `/usr/bin/roamswitch-mcp`, or `/usr/local/bin/roamswitch-mcp`). If it isn't, every call returns `Err(RoamSwitchClientError::AppNotInstalled)` — this is an expected, normal condition, not a bug. Code that calls this crate should match on that variant and degrade gracefully (skip the feature / show a message), never `.unwrap()` or treat it as fatal.
 
 ## Installation
+
+Not yet published anywhere publicly. Once it is, it will be installable as:
 
 ```toml
 [dependencies]
@@ -147,7 +149,7 @@ pub enum Verdict { Allow, Warn, Block }
 
 ### `SecretAuditResult`, `SecurityLogSummary`, `KnowledgeSearchResult`, `QuarantineStatus`, `CanaryStatus`, `ActiveVulnScanResult`
 
-See [`src/models.rs`](src/models.rs) for the complete field list of these five bonus response types (beyond the four macOS RoamSwitchKit also has) — field names follow the same `snake_case`-Rust / `camelCase`-wire convention as everything above.
+See [`src/models.rs`](src/models.rs) for the complete field list of these six bonus response types (beyond the four macOS RoamSwitchKit also has) — field names follow the same `snake_case`-Rust / `camelCase`-wire convention as everything above.
 
 ### `RoamSwitchClientError`
 
