@@ -9,10 +9,18 @@ use std::path::PathBuf;
 
 #[tokio::test]
 async fn test_roamswitch_client() {
-    let candidate_paths = [
-        PathBuf::from("/usr/bin/roamswitch-mcp"),
-        PathBuf::from("/usr/local/bin/roamswitch-mcp"),
-    ];
+    // `ROAMSWITCH_MCP_TEST_BIN` is a local-dev-only override (e.g. a sibling
+    // `roamswitch-linux` checkout's freshly built binary) so this test can
+    // exercise new tools before a packaged `/usr/bin/roamswitch-mcp` catches
+    // up. Not read by any non-test code.
+    let candidate_paths: Vec<PathBuf> = std::env::var("ROAMSWITCH_MCP_TEST_BIN")
+        .map(PathBuf::from)
+        .into_iter()
+        .chain([
+            PathBuf::from("/usr/bin/roamswitch-mcp"),
+            PathBuf::from("/usr/local/bin/roamswitch-mcp"),
+        ])
+        .collect();
 
     let binary_path = candidate_paths.into_iter().find(|p| p.exists());
 
@@ -91,4 +99,49 @@ async fn test_roamswitch_client() {
     let ebpf = client.get_ebpf_incidents().await.expect("get_ebpf_incidents");
     assert!(!ebpf.current_status.is_isolated);
     println!("eBPF: {} incident(s), isolated={}", ebpf.incidents.len(), ebpf.current_status.is_isolated);
+
+    // Server Edition only — legitimately empty on a Client Edition host.
+    let rg = client.get_resource_guard_incidents().await.expect("get_resource_guard_incidents");
+    println!("Resource guard: {} incident(s)", rg.incidents.len());
+
+    let fsg = client.get_file_scan_guard_status().await.expect("get_file_scan_guard_status");
+    assert!(!fsg.quarantine.quarantine_directory.is_empty());
+
+    let notifications = client.notification_history().await.expect("notification_history");
+    println!("Notifications (7 days): {}", notifications.len());
+
+    let timeline = client.get_incident_timeline().await.expect("get_incident_timeline");
+    println!("Timeline: {} event(s)", timeline.len());
+
+    // A directory scan of an empty temp dir: well-formed, no leaks.
+    let tmp = std::env::temp_dir().join(format!("roamswitch-linux-kit-test-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).expect("temp dir");
+    match client.audit_secrets_path(&tmp).await.expect("audit_secrets_path") {
+        roamswitch_linux_kit::SecretPathAuditResult::Directory(d) => assert!(!d.has_leaks),
+        other => panic!("expected a directory result, got {other:?}"),
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    // Client Edition runtime status. Every one must succeed and carry a
+    // non-empty localized summary, whether or not the daemon is running.
+    let vpn = client.vpn_status().await.expect("vpn_status");
+    assert!(vpn.backend == "wireguard" || vpn.backend == "tailscale");
+    assert!(!vpn.summary.is_empty());
+
+    let lg = client.link_guard_status().await.expect("link_guard_status");
+    assert!(["off", "warn", "block"].contains(&lg.effective_mode.as_str()));
+    assert!(!lg.summary.is_empty());
+
+    let ag = client.air_gap_status().await.expect("air_gap_status");
+    assert!(ag.auto_release_after_secs > 0);
+    println!("Air-Gap: active={}, frozen={}", ag.active, ag.frozen_processes.len());
+
+    let sharing = client.sharing_services_status().await.expect("sharing_services_status");
+    assert!(!sharing.summary.is_empty());
+
+    let bt = client.bluetooth_guard_status().await.expect("bluetooth_guard_status");
+    assert_eq!(bt.controller.is_shielded_on_untrusted, bt.guard_enabled);
+
+    let usb = client.usb_guard_status().await.expect("usb_guard_status");
+    assert!(!usb.summary.is_empty());
 }

@@ -21,6 +21,7 @@ Concretely, RoamSwitch continuously computes:
 - **Exposed ports** — every TCP port listening beyond `localhost`, cross-referenced against a database of commonly-misconfigured services (Redis, MongoDB, Docker, Memcached, dev servers, local AI inference servers like Ollama/LM Studio) and probed for risky HTTP responses
 - **A local security posture score** (24 checks) — LUKS/dm-crypt disk encryption, AppArmor/SELinux, UEFI Secure Boot, sudo/SSH configuration, kernel `sysctl` hardening, Wi-Fi encryption, ARP spoofing, exposed ports, and malware/download guard configuration
 - **Offline URL/phishing analysis**, **secret-leak scanning**, **security log auditing**, **ransomware canary status**, and **quarantine vault status**
+- **Guard runtime state** — VPN tunnel + kill-switch, passive Link Guard block/warn history, Air-Gap and frozen processes, sharing services, Bluetooth and USB guards
 
 RoamSwitch already exposes this same data to AI assistants (Claude Desktop, Claude Code, and other [MCP](https://modelcontextprotocol.io)-compatible clients) via a bundled read-only MCP server binary, `roamswitch-mcp` — see [lafine.net/mcp-setup](https://lafine.net/mcp-setup.html). **This crate is the same interface, wrapped for Rust code instead of an AI client**: it lets your own Linux app or script ask "is this machine's network safe right now?" and get back the exact data RoamSwitch itself computed, without reimplementing ARP inspection, port scanning, or log auditing yourself.
 
@@ -135,8 +136,21 @@ impl RoamSwitchClient {
     pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError>;
     pub async fn get_port_anomaly_incidents(&self) -> Result<PortAnomalyIncidentsSummary, RoamSwitchClientError>;
     pub async fn get_ebpf_incidents(&self) -> Result<EbpfIncidentsSummary, RoamSwitchClientError>;
+    pub async fn get_resource_guard_incidents(&self) -> Result<ResourceGuardIncidentsSummary, RoamSwitchClientError>;
+    pub async fn get_file_scan_guard_status(&self) -> Result<FileScanGuardStatus, RoamSwitchClientError>;
+    pub async fn notification_history(&self) -> Result<Vec<NotificationHistoryEntry>, RoamSwitchClientError>;
+    pub async fn get_incident_timeline(&self) -> Result<Vec<TimelineEvent>, RoamSwitchClientError>;
+    pub async fn audit_secrets_path(&self, path: &Path) -> Result<SecretPathAuditResult, RoamSwitchClientError>;
+    pub async fn vpn_status(&self) -> Result<VpnStatusSummary, RoamSwitchClientError>;
+    pub async fn link_guard_status(&self) -> Result<LinkGuardStatusSummary, RoamSwitchClientError>;
+    pub async fn air_gap_status(&self) -> Result<AirGapStatusSummary, RoamSwitchClientError>;
+    pub async fn sharing_services_status(&self) -> Result<SharingServicesStatusSummary, RoamSwitchClientError>;
+    pub async fn bluetooth_guard_status(&self) -> Result<BluetoothGuardStatusSummary, RoamSwitchClientError>;
+    pub async fn usb_guard_status(&self) -> Result<UsbGuardStatusSummary, RoamSwitchClientError>;
 }
 ```
+
+Every one of `roamswitch-mcp`'s 25 read-only tools is covered (`audit_secrets` twice: `audit_secrets` for text, `audit_secrets_path` for a file or directory). Human-readable text in the responses — titles, details, recommendations, summaries, caveats — follows the language the user selected in RoamSwitch (10 languages; the OS locale when unset). Machine-readable fields (`risk_level`, `verdict`, `kind`, `mode`, ...) never change with the language.
 
 - `new(executable_path, timeout)` — `executable_path: None` searches standard install locations; `timeout` defaults to 30s. On expiry the subprocess is killed (dropped) and the call returns `.TimedOut`.
 - `security_report()` / `server_security_report()` — full local audit; the latter runs the Server Edition's 30-check profile (kernel hardening, container isolation, kernel CVE exposure, eBPF LSM) instead of the desktop client's 24 checks.
@@ -153,6 +167,19 @@ impl RoamSwitchClient {
 - `verify_fim()` — read-only Critical Path FIM verification (~150 critical system files re-hashed and compared against the persisted baseline). Does not update or initialize the baseline — that requires root and is intentionally not exposed here. Errors if no baseline has ever been captured on this host.
 - `get_port_anomaly_incidents()` — Port Anomaly Guard's incident log: newly-appearing, externally-exposed listening executables (backdoors, C2 listeners, accidentally-`0.0.0.0` dev servers) that were auto-blocked, with timestamp/process/PID/port for each.
 - `get_ebpf_incidents()` — Server Edition only. eBPF Runtime Guard's containment history: each alert that actually triggered process isolation, a freeze, or a full host Air-Gap lockdown, plus the current containment status. This is the primary trigger reason behind an Air-Gap lockdown, which no other tool exposes — useful for offline triage right after one fires, since this crate never touches the network either.
+- `get_resource_guard_incidents()` — Server Edition only. Resource Exhaustion / Process Anomaly Guard's incident log: network-exposed services flagged for sustained, non-recovering RSS growth or crash-looping, each with a confidence tier (`"possible"` vs `"correlated"`). A `"possible"` entry is not necessarily an attack.
+- `get_file_scan_guard_status()` — Server Edition only. File Scan Guard's configuration (ClamAV enabled, scanned directories, scan / freshclam intervals) and the quarantine vault it feeds into.
+- `notification_history()` — notifications RoamSwitch sent over the past 7 days (timestamp, title, body), most recent first.
+- `get_incident_timeline()` — EXPERIMENTAL. One chronological timeline correlating Link Guard, the Ransomware Canary, the eBPF Runtime Guard and the Resource Guard (most recent 50), with process ancestry, MITRE ATT&CK tags where confidently mappable, containment latency where measured, and resolution status.
+- `audit_secrets_path(path)` — scans a file, or a directory recursively (skipping `.git` / `node_modules` / `target` / `vendor` / `dist` / `build` / `__pycache__` / `venv`, and files over 2MB or that look binary). The path is read by `roamswitch-mcp` with your own privileges.
+- `vpn_status()` — Client Edition. "VPN on untrusted networks": enabled, backend (WireGuard / Tailscale), whether the tunnel should be up at the current level (RoamSwitch only brings it up at `lockdown`), whether it is up, and whether the leak-blocking kill-switch is armed.
+- `link_guard_status()` — Client Edition. Passive Link Guard mode (`off` / `warn` / `block`), allow-list and extra block-list, connections waiting for the user's decision, and block / warn events from the last 7 days.
+- `air_gap_status()` — Client Edition. Whether emergency Air-Gap isolation is active, since when, what triggered it, and every process RoamSwitch currently holds frozen with SIGSTOP. It never lifts Air-Gap or resumes a process.
+- `sharing_services_status()` — Client Edition. Automatic SSH / Samba / remote-desktop control: setting, units RoamSwitch has stopped and will restore, and each installed unit's systemd state.
+- `bluetooth_guard_status()` — Client Edition. Bluetooth Guard setting and the controller's live state (powered, discoverable, connected devices).
+- `usb_guard_status()` — Client Edition. USB storage / BadUSB keyboard guard settings, connected USB devices, the allow-list, and devices waiting for approval.
+
+The six Client Edition status methods are built from files the RoamSwitch daemon already makes world-readable (plus sysfs / procfs and read-only CLI queries) — `roamswitch-mcp` still never opens the daemon's control socket. Each returns `daemon_running`; when it's `false` the values are the last saved state or the configured setting and may not actually be enforced. The two facts that need root (the nftables kill-switch table actually being loaded, and the WireGuard handshake age) are `None` unless the caller is root.
 
 ### `SecurityReport`
 
@@ -177,9 +204,15 @@ impl RoamSwitchClient {
 
 ### `GuardStatus`
 
-`GuardStatus { active_security_level, active_security_level_label, is_current_network_trusted: bool, guards: Vec<GuardEntry>, caveats: Vec<String> }`.
+`GuardStatus { active_security_level, active_security_level_label, is_current_network_trusted: bool, guards: Vec<GuardEntry>, caveats: Vec<String>, settings: Option<GuardSettings> }`.
 
-`GuardEntry`: `key: String`, `enabled_in_settings: bool`. Known keys: `portAnomalyGuard`, `arpSpoofAutoContainment`, `usbStorageGuard`, `webMailDownloadGuard`, `dnsThreatGuard`, `ransomwareCanaryGuard`, `devServerIsolator`, `bluetoothGuard`.
+`GuardEntry`: `key: String`, `enabled_in_settings: bool`. Known keys: `portAnomalyGuard`, `arpSpoofAutoContainment`, `usbStorageGuard`, `usbKeyboardGuard`, `usbZeroTrust`, `webMailDownloadGuard`, `clamavScan`, `dnsThreatGuard`, `ransomwareCanaryGuard`, `devServerIsolator`, `bluetoothGuard`, `linkGuard`, `vpnOnUntrusted`, `gatewayArpLock`, `yamaMemoryProtect`, `systemWideFanotify`, `preExecBlocking`, `entropyFreeze`, `mountHardening`, `sharingServiceControl`, `clickfixClipboardGuard`, `activeVulnScan`. Treat unknown keys as forward-compatible additions.
+
+`GuardSettings { link_guard_mode, vpn_backend, dns_scope, dns_provider }` — `None` from older `roamswitch-mcp` builds.
+
+### `QuarantineStatus`
+
+`QuarantineStatus { item_count: usize, items: Vec<QuarantineItem>, quarantine_directory, exclusion_paths: Vec<String>, clamav: Option<ClamAvDatabaseInfo> }`. `ClamAvDatabaseInfo` (plain snake_case on the wire): `is_installed: bool`, `engine_version`, `database_version`, `last_updated`, `is_up_to_date: bool`.
 
 ### `LinkAuditReport`
 
@@ -216,6 +249,33 @@ Server Edition only. `EbpfIncidentsSummary { current_status: ServerQuarantineSta
 `FimReport { total_monitored: usize, passed_count: usize, violations: Vec<FimViolation>, last_checked_at: String, is_healthy: bool, skipped_unreadable: usize }` — `skipped_unreadable` counts baseline entries that couldn't be read due to insufficient privileges (e.g. `/etc/shadow` without root); this is not tampering and doesn't affect `is_healthy`. Field names here are plain snake_case, not camelCase like the other types on this page — that's the actual wire format `roamswitch-mcp` sends for this tool.
 
 `FimViolation`: `path`, `violation_type` (`"modified"` / `"deleted"` / `"permission_changed"` / `"new_file"`), `expected_sha256: Option<String>`, `actual_sha256: Option<String>`, `detected_at`.
+
+### `SecretPathAuditResult`
+
+`enum SecretPathAuditResult { Directory(SecretDirectoryAuditResult), File(SecretAuditResult) }`. `SecretDirectoryAuditResult { files_scanned: usize, has_leaks: bool, finding_count: usize, flagged_files: Vec<SecretFileFindings>, summary }`; `SecretFileFindings { path, findings: Vec<SecretFinding> }`.
+
+### `NotificationHistoryEntry` / `TimelineEvent` / `ResourceGuardIncidentsSummary` / `FileScanGuardStatus`
+
+`NotificationHistoryEntry { timestamp, title, body }` (RFC 3339 timestamp).
+
+`TimelineEvent` (plain snake_case on the wire): `id`, `timestamp`, `source` (`"link_guard"` / `"canary"` / `"ebpf_guard"` / `"resource_guard"`), `severity`, `summary`, `process_name: Option<String>`, `process_pid: Option<u32>`, `process_ancestry: Vec<ProcessAncestor { pid, name }>`, `attack_technique: Option<AttackTechnique { id, name }>`, `action_taken: Option<String>`, `containment_latency_ms: Option<u64>`, `resolved_at: Option<String>`, `resolution: Option<String>` (`"released"` / `"auto_timeout"` / `"allowlisted"`).
+
+`ResourceGuardIncidentsSummary { incidents: Vec<ResourceGuardIncidentRecord { event: ResourceGuardEvent, action_taken }> }` (plain snake_case). `ResourceGuardEvent`: `timestamp`, `kind` (`"memory_leak_trend"` / `"crash_loop"`), `proc_name: Option<String>`, `pid: Option<i32>`, `unit_or_container: Option<String>`, `confidence` (`"possible"` / `"correlated"`), `matched_signals: Vec<String>`, `detail`.
+
+`FileScanGuardStatus { clamav_enabled: bool, scan_dirs: Vec<String>, scan_interval_secs: u64, freshclam_interval_secs: u64, quarantine: QuarantineStatus }`.
+
+### Client Edition runtime status
+
+All six carry `daemon_running: bool`, a localized `summary`, and localized `caveats: Vec<String>`.
+
+- `VpnStatusSummary { vpn_on_untrusted_enabled, backend, active_level: Option<String>, tunnel_expected_now, tunnel_up, kill_switch_armed, kill_switch_verified: Option<bool>, wireguard: WireGuardRuntime, tailscale: TailscaleRuntime, .. }`. `WireGuardRuntime { tools_present, config_imported: Option<bool>, interface_up, armed, config_name, endpoint, rx_bytes, tx_bytes, last_handshake_age_secs }`; `TailscaleRuntime { tools_present, running, logged_in, tailnet_name, active_exit_node, configured_exit_node, exit_node_candidate_count, armed }`.
+- `LinkGuardStatusSummary { enabled, mode, effective_mode, allowlist, blocklist_extra, use_threat_dns, xdp_boot_gate_enabled, pending_decisions: Vec<PendingApproval>, recent_events: Vec<LinkGuardEvent>, .. }`. `LinkGuardEvent { timestamp, kind ("blocked" / "held" / "warned" / "dnsWarned"), kind_label, title, body }`.
+- `AirGapStatusSummary { active, engaged_at_unix: Option<u64>, active_for_secs: Option<u64>, auto_release_after_secs, trigger_reason: Option<String>, trigger: Option<serde_json::Value>, auto_rfkill_enabled, frozen_processes: Vec<FrozenProcessView { pid, name, reason, reason_label, frozen_at }>, .. }`.
+- `SharingServicesStatusSummary { control_enabled, active_level, stops_services_on_current_level: Option<bool>, stopped_by_roamswitch: Option<Vec<String>>, services: Vec<SharingServiceUnit { unit, active_state, is_active, stopped_by_roamswitch }>, .. }`.
+- `BluetoothGuardStatusSummary { guard_enabled, active_level, network_trusted: Option<bool>, shield_active_now, controller: BluetoothStatus { is_available, is_powered, is_discoverable, connected_devices_count, connected_devices, is_shielded_on_untrusted }, .. }`.
+- `UsbGuardStatusSummary { storage_guard_enabled, keyboard_guard_enabled, usb_zero_trust_enabled, usb_zero_trust_active: Option<bool>, connected_devices: Vec<UsbDeviceInfo>, allowed_devices: Vec<AllowedUsbDevice>, pending_approvals: Vec<PendingApproval>, .. }`.
+
+`PendingApproval { id, kind ("link_warn" / "link_block" / "usb_keyboard" / "usb_storage" / ...), title, body, device_id, device_name, created_at_ms }`. `UsbDeviceInfo { device_identifier, display_name, vendor_id, product_id, serial_number, is_storage, is_keyboard, is_pointer, is_hub, is_authorized }`. `AllowedUsbDevice { device_identifier, display_name, date_added }`.
 
 ### `RoamSwitchClientError`
 

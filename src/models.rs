@@ -116,6 +116,23 @@ pub struct GuardStatus {
     pub is_current_network_trusted: bool,
     pub guards: Vec<GuardEntry>,
     pub caveats: Vec<String>,
+    /// Non-boolean qualifiers for some of the guards above. `None` from
+    /// `roamswitch-mcp` builds older than this field.
+    #[serde(default)]
+    pub settings: Option<GuardSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GuardSettings {
+    /// Effective Link Guard mode: `"off"` / `"warn"` / `"block"`.
+    pub link_guard_mode: String,
+    /// `"wireguard"` / `"tailscale"`.
+    pub vpn_backend: String,
+    /// `"untrusted_only"` / `"always_on"`.
+    pub dns_scope: String,
+    /// e.g. `"quad9"` / `"cloudflare"`.
+    pub dns_provider: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -285,6 +302,21 @@ pub struct QuarantineStatus {
     pub quarantine_directory: String,
     #[serde(rename = "exclusionPaths")]
     pub exclusion_paths: Vec<String>,
+    /// ClamAV engine / signature database state (localized placeholders).
+    /// `None` from older `roamswitch-mcp` builds, and inside
+    /// `FileScanGuardStatus::quarantine`.
+    #[serde(default)]
+    pub clamav: Option<ClamAvDatabaseInfo>,
+}
+
+/// Plain snake_case on the wire, matching `roamswitch-core`'s `ClamAVDatabaseInfo`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ClamAvDatabaseInfo {
+    pub is_installed: bool,
+    pub engine_version: String,
+    pub database_version: String,
+    pub last_updated: String,
+    pub is_up_to_date: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -301,6 +333,10 @@ pub struct CanaryIncident {
     pub suspected_pid: Option<u32>,
     #[serde(rename = "isContained")]
     pub is_contained: bool,
+    /// Other files in the watched folders modified around the incident (the
+    /// "blast radius"). Empty for incidents recorded before this field existed.
+    #[serde(default, rename = "affectedFilePaths")]
+    pub affected_file_paths: Vec<String>,
 }
 
 /// Wire format for `run_package_cve_scan` (OS packages — dpkg/pacman/rpm)
@@ -436,4 +472,360 @@ pub struct CanaryStatus {
     pub recent_incidents: Vec<CanaryIncident>,
     #[serde(rename = "lastInspectionDate")]
     pub last_inspection_date: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// audit_secrets with `path`
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SecretFileFindings {
+    pub path: String,
+    pub findings: Vec<SecretFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SecretDirectoryAuditResult {
+    #[serde(rename = "filesScanned")]
+    pub files_scanned: usize,
+    #[serde(rename = "hasLeaks")]
+    pub has_leaks: bool,
+    #[serde(rename = "findingCount")]
+    pub finding_count: usize,
+    #[serde(rename = "flaggedFiles")]
+    pub flagged_files: Vec<SecretFileFindings>,
+    pub summary: String,
+}
+
+/// `audit_secrets_path`: a directory is scanned recursively; a single file
+/// returns the same shape as a text audit. `Directory` is tried first — only
+/// it carries `filesScanned`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum SecretPathAuditResult {
+    Directory(SecretDirectoryAuditResult),
+    File(SecretAuditResult),
+}
+
+// ---------------------------------------------------------------------------
+// get_notification_history / get_resource_guard_incidents / get_incident_timeline
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NotificationHistoryEntry {
+    /// RFC 3339.
+    pub timestamp: String,
+    pub title: String,
+    pub body: String,
+}
+
+/// Server Edition only. Plain snake_case on the wire (mirrors the daemon's
+/// persisted `resource_guard_incidents.json`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResourceGuardEvent {
+    pub timestamp: String,
+    /// `"memory_leak_trend"` / `"crash_loop"`.
+    pub kind: String,
+    pub proc_name: Option<String>,
+    pub pid: Option<i32>,
+    pub unit_or_container: Option<String>,
+    /// `"possible"` / `"correlated"`.
+    pub confidence: String,
+    pub matched_signals: Vec<String>,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResourceGuardIncidentRecord {
+    pub event: ResourceGuardEvent,
+    pub action_taken: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ResourceGuardIncidentsSummary {
+    pub incidents: Vec<ResourceGuardIncidentRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessAncestor {
+    pub pid: u32,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttackTechnique {
+    /// MITRE ATT&CK technique id, e.g. `"T1486"`.
+    pub id: String,
+    pub name: String,
+}
+
+/// EXPERIMENTAL. One entry of `get_incident_timeline`. Plain snake_case on
+/// the wire. `source` / `resolution` are kept as strings so a future source
+/// kind never fails deserialization.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TimelineEvent {
+    pub id: String,
+    /// RFC 3339.
+    pub timestamp: String,
+    /// `"link_guard"` / `"canary"` / `"ebpf_guard"` / `"resource_guard"`.
+    pub source: String,
+    pub severity: String,
+    pub summary: String,
+    pub process_name: Option<String>,
+    pub process_pid: Option<u32>,
+    #[serde(default)]
+    pub process_ancestry: Vec<ProcessAncestor>,
+    pub attack_technique: Option<AttackTechnique>,
+    pub action_taken: Option<String>,
+    pub containment_latency_ms: Option<u64>,
+    pub resolved_at: Option<String>,
+    /// `"released"` / `"auto_timeout"` / `"allowlisted"`, or `None` while open.
+    pub resolution: Option<String>,
+}
+
+/// Server Edition only. Wire format for `get_file_scan_guard_status`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileScanGuardStatus {
+    pub clamav_enabled: bool,
+    pub scan_dirs: Vec<String>,
+    pub scan_interval_secs: u64,
+    pub freshclam_interval_secs: u64,
+    pub quarantine: QuarantineStatus,
+}
+
+// ---------------------------------------------------------------------------
+// Client Edition runtime status (get_vpn_status, get_link_guard_status,
+// get_air_gap_status, get_sharing_services_status, get_bluetooth_guard_status,
+// get_usb_guard_status). Every one carries a localized `summary` and
+// `caveats`, plus `daemon_running` — when false, what's reported is the last
+// saved state / configured value and may not actually be enforced.
+// ---------------------------------------------------------------------------
+
+/// An entry of the daemon's user-approval queue (held Link Guard connection,
+/// unapproved USB device, ...).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingApproval {
+    pub id: String,
+    /// `"link_warn"`, `"link_block"`, `"usb_keyboard"`, `"usb_storage"`, ...
+    pub kind: String,
+    pub title: String,
+    pub body: String,
+    pub device_id: Option<String>,
+    pub device_name: Option<String>,
+    pub created_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WireGuardRuntime {
+    pub tools_present: bool,
+    /// `None` when `/etc/wireguard` isn't readable by the caller.
+    pub config_imported: Option<bool>,
+    pub interface_up: bool,
+    pub armed: bool,
+    pub config_name: Option<String>,
+    pub endpoint: Option<String>,
+    pub rx_bytes: Option<u64>,
+    pub tx_bytes: Option<u64>,
+    /// Root only.
+    pub last_handshake_age_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TailscaleRuntime {
+    pub tools_present: bool,
+    pub running: bool,
+    pub logged_in: bool,
+    pub tailnet_name: Option<String>,
+    pub active_exit_node: Option<String>,
+    pub configured_exit_node: String,
+    pub exit_node_candidate_count: usize,
+    pub armed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VpnStatusSummary {
+    pub daemon_running: bool,
+    pub vpn_on_untrusted_enabled: bool,
+    /// `"wireguard"` / `"tailscale"`.
+    pub backend: String,
+    pub active_level: Option<String>,
+    /// The daemon only brings the tunnel up at the `lockdown` level.
+    pub tunnel_expected_now: bool,
+    pub tunnel_up: bool,
+    pub kill_switch_armed: bool,
+    /// The nftables kill-switch table is actually loaded. Root only.
+    pub kill_switch_verified: Option<bool>,
+    pub wireguard: WireGuardRuntime,
+    pub tailscale: TailscaleRuntime,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkGuardEvent {
+    pub timestamp: String,
+    /// `"blocked"` / `"held"` / `"warned"` / `"dnsWarned"`.
+    pub kind: String,
+    pub kind_label: String,
+    pub title: String,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkGuardStatusSummary {
+    pub daemon_running: bool,
+    pub enabled: bool,
+    /// Configured mode: `"off"` / `"warn"` / `"block"`.
+    pub mode: String,
+    /// `"off"` whenever `enabled` is false, otherwise `mode`.
+    pub effective_mode: String,
+    pub allowlist: Vec<String>,
+    pub blocklist_extra: Vec<String>,
+    pub use_threat_dns: bool,
+    pub xdp_boot_gate_enabled: bool,
+    pub pending_decisions: Vec<PendingApproval>,
+    /// Last 7 days, newest first, max 50.
+    pub recent_events: Vec<LinkGuardEvent>,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FrozenProcessView {
+    pub pid: u32,
+    pub name: String,
+    /// `"ransomware_burst"` / `"canary_tamper"` / `"kernel_exploit"` / `"ebpf_guard"` / `"manual"`.
+    pub reason: String,
+    pub reason_label: String,
+    pub frozen_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AirGapStatusSummary {
+    pub daemon_running: bool,
+    pub active: bool,
+    pub engaged_at_unix: Option<u64>,
+    pub active_for_secs: Option<u64>,
+    pub auto_release_after_secs: u64,
+    /// e.g. `"arp_spoof"` / `"canary_tamper"`.
+    pub trigger_reason: Option<String>,
+    /// The raw trigger record the daemon saved when Air-Gap engaged.
+    pub trigger: Option<serde_json::Value>,
+    pub auto_rfkill_enabled: bool,
+    pub frozen_processes: Vec<FrozenProcessView>,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SharingServiceUnit {
+    pub unit: String,
+    /// systemd `ActiveState`.
+    pub active_state: String,
+    pub is_active: bool,
+    pub stopped_by_roamswitch: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SharingServicesStatusSummary {
+    pub daemon_running: bool,
+    pub control_enabled: bool,
+    pub active_level: Option<String>,
+    pub stops_services_on_current_level: Option<bool>,
+    /// `None` when the daemon's record isn't readable by the caller.
+    pub stopped_by_roamswitch: Option<Vec<String>>,
+    pub services: Vec<SharingServiceUnit>,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BluetoothStatus {
+    #[serde(rename = "isAvailable")]
+    pub is_available: bool,
+    #[serde(rename = "isPowered")]
+    pub is_powered: bool,
+    #[serde(rename = "isDiscoverable")]
+    pub is_discoverable: bool,
+    #[serde(rename = "connectedDevicesCount")]
+    pub connected_devices_count: usize,
+    #[serde(rename = "connectedDevices")]
+    pub connected_devices: Vec<String>,
+    /// Mirrors the Bluetooth Guard setting.
+    #[serde(rename = "isShieldedOnUntrusted")]
+    pub is_shielded_on_untrusted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BluetoothGuardStatusSummary {
+    pub daemon_running: bool,
+    pub guard_enabled: bool,
+    pub active_level: Option<String>,
+    pub network_trusted: Option<bool>,
+    pub shield_active_now: bool,
+    pub controller: BluetoothStatus,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UsbDeviceInfo {
+    #[serde(rename = "deviceIdentifier")]
+    pub device_identifier: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(rename = "vendorId")]
+    pub vendor_id: Option<String>,
+    #[serde(rename = "productId")]
+    pub product_id: Option<String>,
+    #[serde(rename = "serialNumber")]
+    pub serial_number: Option<String>,
+    #[serde(rename = "isStorage")]
+    pub is_storage: bool,
+    #[serde(rename = "isKeyboard")]
+    pub is_keyboard: bool,
+    #[serde(rename = "isPointer", default)]
+    pub is_pointer: bool,
+    #[serde(rename = "isHub", default)]
+    pub is_hub: bool,
+    #[serde(rename = "isAuthorized")]
+    pub is_authorized: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AllowedUsbDevice {
+    #[serde(rename = "deviceIdentifier")]
+    pub device_identifier: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    #[serde(rename = "dateAdded")]
+    pub date_added: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsbGuardStatusSummary {
+    pub daemon_running: bool,
+    pub storage_guard_enabled: bool,
+    /// BadUSB guard — suppresses input via evdev `EVIOCGRAB`, never by kernel de-authorization.
+    pub keyboard_guard_enabled: bool,
+    pub usb_zero_trust_enabled: bool,
+    pub usb_zero_trust_active: Option<bool>,
+    pub connected_devices: Vec<UsbDeviceInfo>,
+    pub allowed_devices: Vec<AllowedUsbDevice>,
+    pub pending_approvals: Vec<PendingApproval>,
+    pub summary: String,
+    pub caveats: Vec<String>,
 }

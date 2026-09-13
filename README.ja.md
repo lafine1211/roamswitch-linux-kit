@@ -34,6 +34,8 @@ Linux 向けセキュリティツールです。未信頼ネットワークで�
   （Server Edition では 30 項目のサーバー向けプロファイル）
 - **オフライン URL / フィッシング解析**、**シークレット漏洩検査**、**セキュリティログ監査**、
   **ランサムウェア・カナリア状態**、**隔離 Vault の状態**
+- **ガードの稼働状態** — VPN トンネルとキルスイッチ、受動リンクガードの遮断 / 警告履歴、
+  Air-Gap と凍結中プロセス、共有サービス、Bluetooth / USB ガード
 
 RoamSwitch はこれと同じデータを、同梱の読み取り専用 MCP サーバーバイナリ `roamswitch-mcp`
 経由で AI アシスタント（Claude Desktop、Claude Code、その他
@@ -188,8 +190,25 @@ impl RoamSwitchClient {
     pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError>;
     pub async fn get_port_anomaly_incidents(&self) -> Result<PortAnomalyIncidentsSummary, RoamSwitchClientError>;
     pub async fn get_ebpf_incidents(&self) -> Result<EbpfIncidentsSummary, RoamSwitchClientError>;
+    pub async fn get_resource_guard_incidents(&self) -> Result<ResourceGuardIncidentsSummary, RoamSwitchClientError>;
+    pub async fn get_file_scan_guard_status(&self) -> Result<FileScanGuardStatus, RoamSwitchClientError>;
+    pub async fn notification_history(&self) -> Result<Vec<NotificationHistoryEntry>, RoamSwitchClientError>;
+    pub async fn get_incident_timeline(&self) -> Result<Vec<TimelineEvent>, RoamSwitchClientError>;
+    pub async fn audit_secrets_path(&self, path: &Path) -> Result<SecretPathAuditResult, RoamSwitchClientError>;
+    pub async fn vpn_status(&self) -> Result<VpnStatusSummary, RoamSwitchClientError>;
+    pub async fn link_guard_status(&self) -> Result<LinkGuardStatusSummary, RoamSwitchClientError>;
+    pub async fn air_gap_status(&self) -> Result<AirGapStatusSummary, RoamSwitchClientError>;
+    pub async fn sharing_services_status(&self) -> Result<SharingServicesStatusSummary, RoamSwitchClientError>;
+    pub async fn bluetooth_guard_status(&self) -> Result<BluetoothGuardStatusSummary, RoamSwitchClientError>;
+    pub async fn usb_guard_status(&self) -> Result<UsbGuardStatusSummary, RoamSwitchClientError>;
 }
 ```
+
+`roamswitch-mcp` の読み取り専用ツール 25 種すべてに対応しています（`audit_secrets` はテキスト用の
+`audit_secrets` と、ファイル／ディレクトリ用の `audit_secrets_path` の 2 メソッド）。レスポンス中の
+人が読むテキスト（タイトル・詳細・推奨対策・サマリー・注意事項）は、RoamSwitch で選択した言語
+（10 言語、未設定時は OS ロケール）に従います。`risk_level`・`verdict`・`kind`・`mode` などの
+機械可読フィールドは言語によって変わりません。
 
 - `new(executable_path, timeout)` — `executable_path: None` なら標準のインストール場所を検索
   します。`timeout` の既定は 30 秒で、超過するとサブプロセスを kill（drop）して `.TimedOut` を
@@ -227,14 +246,52 @@ impl RoamSwitchClient {
   プロセス隔離・凍結・ホスト全体の Air-Gap ロックダウンを引き起こしたアラート）と、現在の
   封じ込め状態。Air-Gap ロックダウンの発動理由を得られる唯一のツールであり、本クレート自体も
   ネットワークに触れないため、発動直後のオフライン・トリアージに有用です。
+- `get_resource_guard_incidents()` — Server Edition 専用。リソース枯渇・プロセス異常ガードの
+  インシデントログ。ネットワーク公開サービスの回復しない RSS 増大やクラッシュループを、確度ティア
+  （`"possible"` / `"correlated"`）付きで返します。`"possible"` は攻撃とは限りません。
+- `get_file_scan_guard_status()` — Server Edition 専用。ファイルスキャンガードの設定（ClamAV の
+  有効状態、スキャン対象ディレクトリ、スキャン / freshclam 間隔）と、隔離先 Vault の状態。
+- `notification_history()` — RoamSwitch が直近 7 日間に送信した通知（日時・タイトル・本文）を
+  新しい順に返します。
+- `get_incident_timeline()` — 実験的機能。リンクガード / ランサムウェア・カナリア / eBPF
+  ランタイムガード / リソースガードのインシデントを単一の時系列（直近 50 件）に統合し、プロセス系譜、
+  確実に対応付けられる場合のみの MITRE ATT&CK タグ、計測済みの封じ込め遅延、解決状態を付けて返します。
+- `audit_secrets_path(path)` — ファイル、またはディレクトリを再帰的に検査します（`.git` /
+  `node_modules` / `target` / `vendor` / `dist` / `build` / `__pycache__` / `venv` と、2MB 超
+  またはバイナリと思われるファイルはスキップ）。パスは呼び出し元自身の権限で `roamswitch-mcp` が
+  読み取ります。
+- `vpn_status()` — Client Edition。「未信頼ネットワークで VPN」の状態。有効かどうか、バックエンド
+  （WireGuard / Tailscale）、現在の保護レベルでトンネルが確立されるべきか（RoamSwitch は
+  `lockdown` 時のみ確立）、実際に確立済みか、通信漏れを防ぐキルスイッチが有効か。
+- `link_guard_status()` — Client Edition。受動リンクガードのモード（`off` / `warn` / `block`）、
+  許可リストと追加遮断リスト、ユーザーの判断待ちの接続、直近 7 日間の遮断 / 警告イベント。
+- `air_gap_status()` — Client Edition。Air-Gap 緊急遮断が発動中か、いつから・何が発動させたか、
+  および RoamSwitch が SIGSTOP で凍結中のすべてのプロセス。Air-Gap の解除やプロセスの再開は
+  行いません。
+- `sharing_services_status()` — Client Edition。SSH / Samba / リモートデスクトップの自動制御の
+  設定、RoamSwitch が停止して復元予定のユニット、インストール済み各ユニットの systemd 状態。
+- `bluetooth_guard_status()` — Client Edition。Bluetooth ガードの設定と、コントローラーの
+  現在の状態（電源・検出可能・接続中デバイス）。
+- `usb_guard_status()` — Client Edition。USB ストレージ / BadUSB キーボードガードの設定、
+  接続中の USB デバイス、許可リスト、承認待ちのデバイス。
+
+Client Edition 向けの 6 つの状態取得メソッドは、RoamSwitch デーモンがもともと誰でも読める形で
+書き出しているファイル（と sysfs / procfs、読み取り専用の CLI 照会）だけから組み立てられます。
+`roamswitch-mcp` がデーモンの制御ソケットを開かない点は変わりません。いずれも `daemon_running` を
+返し、`false` の場合の値は最後に保存された状態や設定値であって、実際には適用されていない可能性が
+あります。root 権限が必要な 2 項目（nftables キルスイッチテーブルの実在確認と WireGuard の
+ハンドシェイク経過時間）は、呼び出し元が root でない限り `None` です。
 
 ### 戻り値の型
 
 各構造体のフィールド定義は、英語版 README の
 [API reference](README.md#api-reference) に Rust の型宣言そのままの形で掲載しています
-（`SecurityReport`、`ExposedPorts`、`GuardStatus`、`LinkAuditReport`、
-`PackageCveScanResult` / `PackageCveScanLanguagesResult`、`PortAnomalyIncidentsSummary`、
-`EbpfIncidentsSummary`、`FimReport`、`RoamSwitchClientError`）。
+（`SecurityReport`、`ExposedPorts`、`GuardStatus` / `GuardSettings`、`QuarantineStatus` /
+`ClamAvDatabaseInfo`、`LinkAuditReport`、`PackageCveScanResult` / `PackageCveScanLanguagesResult`、
+`PortAnomalyIncidentsSummary`、`EbpfIncidentsSummary`、`FimReport`、`SecretPathAuditResult`、
+`NotificationHistoryEntry`、`TimelineEvent`、`ResourceGuardIncidentsSummary`、`FileScanGuardStatus`、
+`VpnStatusSummary`、`LinkGuardStatusSummary`、`AirGapStatusSummary`、`SharingServicesStatusSummary`、
+`BluetoothGuardStatusSummary`、`UsbGuardStatusSummary`、`RoamSwitchClientError`）。
 
 ### `RoamSwitchClientError`
 
