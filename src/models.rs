@@ -81,6 +81,23 @@ pub struct PortFinding {
     pub recommendation: String,
 }
 
+/// One probe that did NOT produce an [`ActiveScanFinding`] — either the
+/// target was actually confirmed safe, or the probe itself couldn't
+/// complete (connection refused, timeout, DNS/socket error). Reported
+/// separately in [`ActiveVulnScanResult`] so a caller can't mistake
+/// "checked, and it's fine" for "never actually got to check" — both used
+/// to collapse into the same empty `findings` list (see
+/// <https://dev.to/raknaos/my-wait-for-it-wrapper-reported-success-for-a-port-that-never-opened-ga3>).
+/// `check` is the same title an [`ActiveScanFinding`] for this exact probe
+/// would carry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanCheckOutcome {
+    pub port: u16,
+    pub process_name: String,
+    pub check: String,
+}
+
 /// Wire format for `run_active_vuln_scan` (Phase 2 of the active-vulnerability
 /// -verification roadmap): non-destructive, opt-in reachability verification
 /// against `127.0.0.1` only.
@@ -90,6 +107,15 @@ pub struct ActiveVulnScanResult {
     pub enabled: bool,
     pub scanned_target_count: usize,
     pub findings: Vec<ActiveScanFinding>,
+    /// Checks that ran to completion and found no issue. Older servers that
+    /// predate this field simply omit it — defaults to empty.
+    #[serde(default)]
+    pub confirmed_safe: Vec<ScanCheckOutcome>,
+    /// Checks that could not complete (unreachable/timeout) — never
+    /// evidence of safety. Older servers that predate this field simply
+    /// omit it — defaults to empty.
+    #[serde(default)]
+    pub inconclusive: Vec<ScanCheckOutcome>,
     pub message: String,
 }
 

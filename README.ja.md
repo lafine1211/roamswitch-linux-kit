@@ -221,7 +221,11 @@ impl RoamSwitchClient {
   含めます（こちらは時間のかかる個別監査なしで返ります）。
 - `run_active_vuln_scan()` — オプトインの非破壊到達性検証で、対象は `127.0.0.1` のみです。
   RoamSwitch 自身の設定で `active_vuln_scan_enabled: true` にしていない限り、
-  `enabled: false` と空の結果を返します。
+  `enabled: false` と空の結果を返します。`ActiveVulnScanResult` には
+  `confirmed_safe`（確認できて問題なしだった項目）と `inconclusive`
+  （接続できず確認自体ができなかった項目）も `Vec<ScanCheckOutcome>` として
+  含まれます。`findings` が空でも「全部確認して安全だった」のか「一部は
+  確認自体できなかった」のかを区別できるよう、別枠で返す設計です。
 - `guard_status()` — 現在の保護レベル、信頼ネットワーク判定、各オプションガードの ON/OFF。
 - `audit_url_safety(url)` — URL をフィッシング、Unicode ホモグラフ偽装、ブランド偽装
   サブドメイン、高リスク TLD の観点で解析します（Zero Telemetry。URL 自体の取得も行いません）。
