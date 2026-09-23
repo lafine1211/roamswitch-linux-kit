@@ -81,13 +81,17 @@ pub struct SecurityReport {
 pub struct SecurityAuditItem {
     pub category: String,
     pub title: String,
+    pub check_id: String,             // stable machine identifier, e.g. "luks_encryption"; "" on older releases
     pub is_passed: bool,
     pub status_text: String,
     pub detail: String,
     pub recommendation: String,
     pub settings_url: Option<String>,
     pub is_applicable: bool,
+    pub is_inconclusive: bool,        // true only alongside is_passed: true — couldn't confirm safe, not a hard failure
     pub fix_action: Option<String>,   // token for a one-click remediation, when one exists
+    pub cis_control: Option<String>,  // CIS Controls v8 safeguard number when confidently mappable; None = no mapping or older release
+    pub nist_csf: Vec<String>,        // NIST CSF 2.0 subcategory codes, e.g. ["PR.DS-01"]; same "confident or omit" policy
 }
 ```
 

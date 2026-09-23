@@ -194,7 +194,7 @@ The six Client Edition status methods are built from files the RoamSwitch daemon
 | `items` | `Vec<SecurityAuditItem>` | One entry per check |
 | `caveats` | `Vec<String>` | Notes on anything this tool couldn't fully verify |
 
-`SecurityAuditItem`: `category`, `title`, `is_passed: bool`, `status_text`, `detail`, `recommendation`, `settings_url: Option<String>`, `is_applicable: bool`, `fix_action: Option<String>` (a token identifying a one-click remediation, when one exists).
+`SecurityAuditItem`: `category`, `title`, `check_id: String` (stable machine identifier, e.g. `"luks_encryption"`; empty on older releases), `is_passed: bool`, `status_text`, `detail`, `recommendation`, `settings_url: Option<String>`, `is_applicable: bool`, `is_inconclusive: bool` (true only alongside `is_passed: true` — couldn't confirm safe, not a hard failure), `fix_action: Option<String>` (a token identifying a one-click remediation, when one exists), `cis_control: Option<String>` (a CIS Controls v8 safeguard number when confidently mappable; `None` also just means "no confident mapping"), `nist_csf: Vec<String>` (NIST CSF 2.0 subcategory codes, e.g. `["PR.DS-01"]`; same "confident or omit" policy).
 
 ### `ExposedPorts`
 

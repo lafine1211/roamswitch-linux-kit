@@ -19,6 +19,34 @@ fn guard_status_accepts_old_and_new_payloads() {
 }
 
 #[test]
+fn security_audit_item_decodes_legacy_shape_without_compliance_fields() {
+    // A pre-1.10.0 daemon sends no checkId/isInconclusive/cisControl/nistCsf
+    // at all — this must still decode, with all four defaulting.
+    let legacy = r#"{"score":90,"grade":"A","totalChecks":1,"passedChecks":1,"items":[
+        {"category":"c","title":"t","isPassed":true,"statusText":"ok","detail":"d","recommendation":"r","settingsURL":null,"isApplicable":true}
+    ],"caveats":[]}"#;
+    let report: SecurityReport = serde_json::from_str(legacy).expect("legacy payload");
+    let item = &report.items[0];
+    assert_eq!(item.check_id, "");
+    assert!(!item.is_inconclusive);
+    assert!(item.cis_control.is_none());
+    assert!(item.nist_csf.is_empty());
+}
+
+#[test]
+fn security_audit_item_decodes_compliance_fields() {
+    let wire = r#"{"score":90,"grade":"A","totalChecks":1,"passedChecks":1,"items":[
+        {"category":"c","title":"t","isPassed":true,"statusText":"ok","detail":"d","recommendation":"r","settingsURL":null,"isApplicable":true,
+         "checkId":"luks_encryption","isInconclusive":false,"cisControl":"3.11","nistCsf":["PR.DS-01"]}
+    ],"caveats":[]}"#;
+    let report: SecurityReport = serde_json::from_str(wire).expect("compliance-tagged payload");
+    let item = &report.items[0];
+    assert_eq!(item.check_id, "luks_encryption");
+    assert_eq!(item.cis_control.as_deref(), Some("3.11"));
+    assert_eq!(item.nist_csf, vec!["PR.DS-01".to_string()]);
+}
+
+#[test]
 fn probe_status_decodes_the_get_vulnerability_scan_history_wrapper_shape() {
     let wire = r#"{"probes":[
         {"probeName":"redis-default-noauth","port":6379,"lastOutcome":"safe","lastFinishedAt":"2026-09-01T00:00:00+00:00","passAgeDays":5},

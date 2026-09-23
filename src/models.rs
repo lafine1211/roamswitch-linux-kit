@@ -26,6 +26,14 @@ pub struct SecurityReport {
 pub struct SecurityAuditItem {
     pub category: String,
     pub title: String,
+    /// Stable machine identifier for this specific check (e.g.
+    /// `"luks_encryption"`), independent of the localized `title` — key on
+    /// this instead of parsing a display string. `#[serde(default)]` so a
+    /// response from an older RoamSwitch release (before this field
+    /// existed) still decodes — an empty string means "no stable
+    /// identifier available".
+    #[serde(default, rename = "checkId")]
+    pub check_id: String,
     #[serde(rename = "isPassed")]
     pub is_passed: bool,
     #[serde(rename = "statusText")]
@@ -36,10 +44,27 @@ pub struct SecurityAuditItem {
     pub settings_url: Option<String>,
     #[serde(rename = "isApplicable")]
     pub is_applicable: bool,
+    /// `true` only alongside `is_passed: true`: the check couldn't confirm
+    /// this item is actually safe, but the evidence isn't strong enough to
+    /// call it a hard failure either. Never combined with `is_passed:
+    /// false`. `#[serde(default)]` for the same older-release reason as
+    /// `check_id`.
+    #[serde(default, rename = "isInconclusive")]
+    pub is_inconclusive: bool,
     /// Token identifying a one-click remediation the GUI can offer for a
     /// failed item. `None` when the fix is manual.
     #[serde(default, rename = "fixAction")]
     pub fix_action: Option<String>,
+    /// A CIS Controls v8 safeguard number this check corresponds to (e.g.
+    /// `"3.11"`), when confident. `None` means "not confidently mappable to
+    /// a single control number", not "not compliance-relevant".
+    #[serde(default, rename = "cisControl")]
+    pub cis_control: Option<String>,
+    /// NIST CSF 2.0 subcategory codes (e.g. `["PR.DS-01"]`) this check
+    /// relates to. A check can map to more than one subcategory, so this is
+    /// a `Vec`, unlike `cis_control`.
+    #[serde(default, rename = "nistCsf")]
+    pub nist_csf: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
