@@ -129,6 +129,20 @@ impl RoamSwitchClient {
         self.call_tool("run_active_vuln_scan", serde_json::json!({})).await
     }
 
+    /// Current status of every probe `run_active_vuln_scan` has ever
+    /// recorded a result for (most-stale first) — the `pass_age`
+    /// staleness surfacing for its heartbeat log. No scheduled runner
+    /// exists, so this reflects only however irregularly the scan has
+    /// actually been run.
+    pub async fn vulnerability_scan_history(&self) -> Result<Vec<crate::models::ProbeStatus>, RoamSwitchClientError> {
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            probes: Vec<crate::models::ProbeStatus>,
+        }
+        let res: Wrapper = self.call_tool("get_vulnerability_scan_history", serde_json::json!({})).await?;
+        Ok(res.probes)
+    }
+
     /// Current active security level, trusted-network status, and each
     /// optional guard's on/off state.
     pub async fn guard_status(&self) -> Result<GuardStatus, RoamSwitchClientError> {

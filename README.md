@@ -136,6 +136,7 @@ impl RoamSwitchClient {
     pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError>;
     pub async fn get_port_anomaly_incidents(&self) -> Result<PortAnomalyIncidentsSummary, RoamSwitchClientError>;
     pub async fn get_ebpf_incidents(&self) -> Result<EbpfIncidentsSummary, RoamSwitchClientError>;
+    pub async fn vulnerability_scan_history(&self) -> Result<Vec<ProbeStatus>, RoamSwitchClientError>;
     pub async fn get_resource_guard_incidents(&self) -> Result<ResourceGuardIncidentsSummary, RoamSwitchClientError>;
     pub async fn get_file_scan_guard_status(&self) -> Result<FileScanGuardStatus, RoamSwitchClientError>;
     pub async fn notification_history(&self) -> Result<Vec<NotificationHistoryEntry>, RoamSwitchClientError>;
@@ -167,6 +168,7 @@ Every one of `roamswitch-mcp`'s 25 read-only tools is covered (`audit_secrets` t
 - `verify_fim()` — read-only Critical Path FIM verification (~150 critical system files re-hashed and compared against the persisted baseline). Does not update or initialize the baseline — that requires root and is intentionally not exposed here. Errors if no baseline has ever been captured on this host.
 - `get_port_anomaly_incidents()` — Port Anomaly Guard's incident log: newly-appearing, externally-exposed listening executables (backdoors, C2 listeners, accidentally-`0.0.0.0` dev servers) that were auto-blocked, with timestamp/process/PID/port for each.
 - `get_ebpf_incidents()` — Server Edition only. eBPF Runtime Guard's containment history: each alert that actually triggered process isolation, a freeze, or a full host Air-Gap lockdown, plus the current containment status. This is the primary trigger reason behind an Air-Gap lockdown, which no other tool exposes — useful for offline triage right after one fires, since this crate never touches the network either.
+- `vulnerability_scan_history()` — the last recorded result and days elapsed (`pass_age_days`) for every probe `run_active_vuln_scan()` has ever recorded, derived from its on-disk heartbeat log rather than a scheduled runner (there is none yet) — reflects only however often the scan has actually been run.
 - `get_resource_guard_incidents()` — Server Edition only. Resource Exhaustion / Process Anomaly Guard's incident log: network-exposed services flagged for sustained, non-recovering RSS growth or crash-looping, each with a confidence tier (`"possible"` vs `"correlated"`). A `"possible"` entry is not necessarily an attack.
 - `get_file_scan_guard_status()` — Server Edition only. File Scan Guard's configuration (ClamAV enabled, scanned directories, scan / freshclam intervals) and the quarantine vault it feeds into.
 - `notification_history()` — notifications RoamSwitch sent over the past 7 days (timestamp, title, body), most recent first.
@@ -254,7 +256,9 @@ Server Edition only. `EbpfIncidentsSummary { current_status: ServerQuarantineSta
 
 `enum SecretPathAuditResult { Directory(SecretDirectoryAuditResult), File(SecretAuditResult) }`. `SecretDirectoryAuditResult { files_scanned: usize, has_leaks: bool, finding_count: usize, flagged_files: Vec<SecretFileFindings>, summary }`; `SecretFileFindings { path, findings: Vec<SecretFinding> }`.
 
-### `NotificationHistoryEntry` / `TimelineEvent` / `ResourceGuardIncidentsSummary` / `FileScanGuardStatus`
+### `ProbeStatus` / `NotificationHistoryEntry` / `TimelineEvent` / `ResourceGuardIncidentsSummary` / `FileScanGuardStatus`
+
+`ProbeStatus { probe_name, port: Option<u16>, last_outcome, last_finished_at, pass_age_days: Option<u64> }`. `last_outcome` is `"vulnerable"` / `"safe"` / `"inconclusive"` (same three-state vocabulary as `ActiveVulnScanResult`'s findings). `pass_age_days` is whole days since `last_finished_at`; `None` only if the server couldn't parse its own timestamp.
 
 `NotificationHistoryEntry { timestamp, title, body }` (RFC 3339 timestamp).
 

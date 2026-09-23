@@ -132,6 +132,25 @@ pub struct ActiveScanFinding {
     pub confirmed: bool,
 }
 
+/// Wire format for `get_vulnerability_scan_history` — the current status of
+/// one probe, derived from the most recent row `run_active_vuln_scan`
+/// wrote to its on-disk heartbeat log. There is no scheduled runner, so
+/// `pass_age_days` reflects only however irregularly the scan has actually
+/// been run — a probe never run has no status at all, not a stale one.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeStatus {
+    pub probe_name: String,
+    pub port: Option<u16>,
+    /// `"vulnerable"` | `"safe"` | `"inconclusive"` — same three-state
+    /// vocabulary as `ActiveScanFinding`/`ScanCheckOutcome`.
+    pub last_outcome: String,
+    pub last_finished_at: String,
+    /// Whole days since `last_finished_at`. `None` only if the server
+    /// couldn't parse its own timestamp (should not happen in practice).
+    pub pass_age_days: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GuardStatus {
     #[serde(rename = "activeSecurityLevel")]

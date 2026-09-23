@@ -43,6 +43,18 @@ impl RoamSwitchClient {
     pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError>;
     pub async fn get_port_anomaly_incidents(&self) -> Result<PortAnomalyIncidentsSummary, RoamSwitchClientError>;
     pub async fn get_ebpf_incidents(&self) -> Result<EbpfIncidentsSummary, RoamSwitchClientError>;  // Server Edition only
+    pub async fn vulnerability_scan_history(&self) -> Result<Vec<ProbeStatus>, RoamSwitchClientError>;
+    pub async fn get_resource_guard_incidents(&self) -> Result<ResourceGuardIncidentsSummary, RoamSwitchClientError>;  // Server Edition only
+    pub async fn get_file_scan_guard_status(&self) -> Result<FileScanGuardStatus, RoamSwitchClientError>;  // Server Edition only
+    pub async fn notification_history(&self) -> Result<Vec<NotificationHistoryEntry>, RoamSwitchClientError>;
+    pub async fn get_incident_timeline(&self) -> Result<Vec<TimelineEvent>, RoamSwitchClientError>;  // EXPERIMENTAL
+    pub async fn audit_secrets_path(&self, path: &Path) -> Result<SecretPathAuditResult, RoamSwitchClientError>;
+    pub async fn vpn_status(&self) -> Result<VpnStatusSummary, RoamSwitchClientError>;  // Client Edition only
+    pub async fn link_guard_status(&self) -> Result<LinkGuardStatusSummary, RoamSwitchClientError>;  // Client Edition only
+    pub async fn air_gap_status(&self) -> Result<AirGapStatusSummary, RoamSwitchClientError>;  // Client Edition only
+    pub async fn sharing_services_status(&self) -> Result<SharingServicesStatusSummary, RoamSwitchClientError>;  // Client Edition only
+    pub async fn bluetooth_guard_status(&self) -> Result<BluetoothGuardStatusSummary, RoamSwitchClientError>;  // Client Edition only
+    pub async fn usb_guard_status(&self) -> Result<UsbGuardStatusSummary, RoamSwitchClientError>;  // Client Edition only
 }
 ```
 
@@ -150,9 +162,9 @@ pub struct LinkRiskFactor {
 pub enum Verdict { Allow, Warn, Block }
 ```
 
-### `SecretAuditResult`, `SecurityLogSummary`, `KnowledgeSearchResult`, `QuarantineStatus`, `CanaryStatus`, `ActiveVulnScanResult`, `PackageCveScanResult`, `PackageCveScanLanguagesResult`, `FimReport`
+### `SecretAuditResult`, `SecurityLogSummary`, `KnowledgeSearchResult`, `QuarantineStatus`, `CanaryStatus`, `ActiveVulnScanResult`, `PackageCveScanResult`, `PackageCveScanLanguagesResult`, `FimReport`, `ProbeStatus`, `NotificationHistoryEntry`
 
-See [`src/models.rs`](src/models.rs) for the complete field list of these nine bonus response types (beyond the four macOS RoamSwitchKit also has) — field names follow the same `snake_case`-Rust / `camelCase`-wire convention as everything above, **except `FimReport`/`FimViolation`, which are plain snake_case on the wire too** (no `camelCase` rename — that's the actual JSON `verify_fim` sends, not an inconsistency to "fix").
+See [`src/models.rs`](src/models.rs) for the complete field list of these eleven bonus response types (beyond the four macOS RoamSwitchKit also has) — field names follow the same `snake_case`-Rust / `camelCase`-wire convention as everything above, **except `FimReport`/`FimViolation`, which are plain snake_case on the wire too** (no `camelCase` rename — that's the actual JSON `verify_fim` sends, not an inconsistency to "fix").
 
 ### `PortAnomalyIncidentsSummary` / `EbpfIncidentsSummary`
 
@@ -208,6 +220,273 @@ pub struct EbpfAlertEvent {
     pub fd_sport: Option<u16>,
     pub fd_dip: Option<String>,
     pub fd_dport: Option<u16>,
+}
+```
+
+### `ResourceGuardIncidentsSummary` (Server Edition only)
+
+```rust
+pub struct ResourceGuardIncidentsSummary {
+    pub incidents: Vec<ResourceGuardIncidentRecord>,
+}
+
+pub struct ResourceGuardIncidentRecord {
+    pub event: ResourceGuardEvent,
+    pub action_taken: String,
+}
+
+// Plain snake_case on the wire (mirrors the daemon's persisted
+// resource_guard_incidents.json, same exception as PortAnomalyIncidentsSummary).
+pub struct ResourceGuardEvent {
+    pub timestamp: String,
+    pub kind: String,          // "memory_leak_trend" | "crash_loop"
+    pub proc_name: Option<String>,
+    pub pid: Option<i32>,
+    pub unit_or_container: Option<String>,
+    pub confidence: String,    // "possible" | "correlated"
+    pub matched_signals: Vec<String>,
+    pub detail: String,
+}
+```
+
+### `FileScanGuardStatus` (Server Edition only)
+
+```rust
+pub struct FileScanGuardStatus {
+    pub clamav_enabled: bool,
+    pub scan_dirs: Vec<String>,
+    pub scan_interval_secs: u64,
+    pub freshclam_interval_secs: u64,
+    pub quarantine: QuarantineStatus,
+}
+```
+
+### `TimelineEvent` (EXPERIMENTAL — `get_incident_timeline`)
+
+```rust
+// Plain snake_case on the wire. `source` / `resolution` are kept as strings
+// so a future source kind never fails deserialization.
+pub struct TimelineEvent {
+    pub id: String,
+    pub timestamp: String,     // RFC 3339
+    pub source: String,        // "link_guard" | "canary" | "ebpf_guard" | "resource_guard"
+    pub severity: String,
+    pub summary: String,
+    pub process_name: Option<String>,
+    pub process_pid: Option<u32>,
+    pub process_ancestry: Vec<ProcessAncestor>,  // #[serde(default)]
+    pub attack_technique: Option<AttackTechnique>,
+    pub action_taken: Option<String>,
+    pub containment_latency_ms: Option<u64>,
+    pub resolved_at: Option<String>,
+    pub resolution: Option<String>,  // "released" | "auto_timeout" | "allowlisted", or None while open
+}
+
+pub struct ProcessAncestor {
+    pub pid: u32,
+    pub name: Option<String>,
+}
+
+pub struct AttackTechnique {
+    pub id: String,    // MITRE ATT&CK technique id, e.g. "T1486"
+    pub name: String,
+}
+```
+
+### `SecretPathAuditResult` (`audit_secrets_path`)
+
+```rust
+// `Directory` is tried first — only it carries `filesScanned`. A single
+// file returns the same shape as a text audit (`SecretAuditResult`, already
+// documented above).
+#[serde(untagged)]
+pub enum SecretPathAuditResult {
+    Directory(SecretDirectoryAuditResult),
+    File(SecretAuditResult),
+}
+
+pub struct SecretDirectoryAuditResult {
+    pub files_scanned: usize,
+    pub has_leaks: bool,
+    pub finding_count: usize,
+    pub flagged_files: Vec<SecretFileFindings>,
+    pub summary: String,
+}
+
+pub struct SecretFileFindings {
+    pub path: String,
+    pub findings: Vec<SecretFinding>,  // same type SecretAuditResult uses
+}
+```
+
+### Client Edition runtime status (`vpn_status`, `link_guard_status`, `air_gap_status`, `sharing_services_status`, `bluetooth_guard_status`, `usb_guard_status`)
+
+Every one of these six carries a localized `summary` and `caveats`, plus `daemon_running` — when `false`, what's reported is the last saved state / configured value and may not actually be enforced.
+
+```rust
+pub struct VpnStatusSummary {
+    pub daemon_running: bool,
+    pub vpn_on_untrusted_enabled: bool,
+    pub backend: String,       // "wireguard" | "tailscale"
+    pub active_level: Option<String>,
+    pub tunnel_expected_now: bool,  // the daemon only brings the tunnel up at the "lockdown" level
+    pub tunnel_up: bool,
+    pub kill_switch_armed: bool,
+    pub kill_switch_verified: Option<bool>,  // the nftables table is actually loaded; root only
+    pub wireguard: WireGuardRuntime,
+    pub tailscale: TailscaleRuntime,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+pub struct WireGuardRuntime {
+    pub tools_present: bool,
+    pub config_imported: Option<bool>,  // None when /etc/wireguard isn't readable by the caller
+    pub interface_up: bool,
+    pub armed: bool,
+    pub config_name: Option<String>,
+    pub endpoint: Option<String>,
+    pub rx_bytes: Option<u64>,
+    pub tx_bytes: Option<u64>,
+    pub last_handshake_age_secs: Option<u64>,  // root only
+}
+
+pub struct TailscaleRuntime {
+    pub tools_present: bool,
+    pub running: bool,
+    pub logged_in: bool,
+    pub tailnet_name: Option<String>,
+    pub active_exit_node: Option<String>,
+    pub configured_exit_node: String,
+    pub exit_node_candidate_count: usize,
+    pub armed: bool,
+}
+
+pub struct LinkGuardStatusSummary {
+    pub daemon_running: bool,
+    pub enabled: bool,
+    pub mode: String,               // configured: "off" | "warn" | "block"
+    pub effective_mode: String,     // "off" whenever enabled is false, otherwise mode
+    pub allowlist: Vec<String>,
+    pub blocklist_extra: Vec<String>,
+    pub use_threat_dns: bool,
+    pub xdp_boot_gate_enabled: bool,
+    pub pending_decisions: Vec<PendingApproval>,
+    pub recent_events: Vec<LinkGuardEvent>,  // last 7 days, newest first, max 50
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+// An entry of the daemon's user-approval queue (held Link Guard connection,
+// unapproved USB device, ...) — shared with UsbGuardStatusSummary below.
+pub struct PendingApproval {
+    pub id: String,
+    pub kind: String,          // "link_warn", "link_block", "usb_keyboard", "usb_storage", ...
+    pub title: String,
+    pub body: String,
+    pub device_id: Option<String>,
+    pub device_name: Option<String>,
+    pub created_at_ms: u64,
+}
+
+pub struct LinkGuardEvent {
+    pub timestamp: String,
+    pub kind: String,          // "blocked" | "held" | "warned" | "dnsWarned"
+    pub kind_label: String,
+    pub title: String,
+    pub body: String,
+}
+
+pub struct AirGapStatusSummary {
+    pub daemon_running: bool,
+    pub active: bool,
+    pub engaged_at_unix: Option<u64>,
+    pub active_for_secs: Option<u64>,
+    pub auto_release_after_secs: u64,
+    pub trigger_reason: Option<String>,  // e.g. "arp_spoof" | "canary_tamper"
+    pub trigger: Option<serde_json::Value>,  // the raw trigger record the daemon saved when Air-Gap engaged
+    pub auto_rfkill_enabled: bool,
+    pub frozen_processes: Vec<FrozenProcessView>,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+pub struct FrozenProcessView {
+    pub pid: u32,
+    pub name: String,
+    pub reason: String,   // "ransomware_burst" | "canary_tamper" | "kernel_exploit" | "ebpf_guard" | "manual"
+    pub reason_label: String,
+    pub frozen_at: String,
+}
+
+pub struct SharingServicesStatusSummary {
+    pub daemon_running: bool,
+    pub control_enabled: bool,
+    pub active_level: Option<String>,
+    pub stops_services_on_current_level: Option<bool>,
+    pub stopped_by_roamswitch: Option<Vec<String>>,  // None when the daemon's record isn't readable by the caller
+    pub services: Vec<SharingServiceUnit>,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+pub struct SharingServiceUnit {
+    pub unit: String,
+    pub active_state: String,  // systemd ActiveState
+    pub is_active: bool,
+    pub stopped_by_roamswitch: bool,
+}
+
+pub struct BluetoothGuardStatusSummary {
+    pub daemon_running: bool,
+    pub guard_enabled: bool,
+    pub active_level: Option<String>,
+    pub network_trusted: Option<bool>,
+    pub shield_active_now: bool,
+    pub controller: BluetoothStatus,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+pub struct BluetoothStatus {
+    pub is_available: bool,
+    pub is_powered: bool,
+    pub is_discoverable: bool,
+    pub connected_devices_count: usize,
+    pub connected_devices: Vec<String>,
+    pub is_shielded_on_untrusted: bool,  // mirrors the Bluetooth Guard setting
+}
+
+pub struct UsbGuardStatusSummary {
+    pub daemon_running: bool,
+    pub storage_guard_enabled: bool,
+    pub keyboard_guard_enabled: bool,  // BadUSB guard — suppresses input via evdev EVIOCGRAB, never kernel de-authorization
+    pub usb_zero_trust_enabled: bool,
+    pub usb_zero_trust_active: Option<bool>,
+    pub connected_devices: Vec<UsbDeviceInfo>,
+    pub allowed_devices: Vec<AllowedUsbDevice>,
+    pub pending_approvals: Vec<PendingApproval>,
+    pub summary: String,
+    pub caveats: Vec<String>,
+}
+
+pub struct UsbDeviceInfo {
+    pub device_identifier: String,
+    pub display_name: String,
+    pub vendor_id: Option<String>,
+    pub product_id: Option<String>,
+    pub serial_number: Option<String>,
+    pub is_storage: bool,
+    pub is_keyboard: bool,
+    pub is_pointer: bool,   // #[serde(default)]
+    pub is_hub: bool,       // #[serde(default)]
+    pub is_authorized: bool,
+}
+
+pub struct AllowedUsbDevice {
+    pub device_identifier: String,
+    pub display_name: String,
+    pub date_added: String,
 }
 ```
 

@@ -19,6 +19,25 @@ fn guard_status_accepts_old_and_new_payloads() {
 }
 
 #[test]
+fn probe_status_decodes_the_get_vulnerability_scan_history_wrapper_shape() {
+    let wire = r#"{"probes":[
+        {"probeName":"redis-default-noauth","port":6379,"lastOutcome":"safe","lastFinishedAt":"2026-09-01T00:00:00+00:00","passAgeDays":5},
+        {"probeName":"memcached-noauth","port":null,"lastOutcome":"inconclusive","lastFinishedAt":"2026-09-20T00:00:00+00:00","passAgeDays":0}
+    ]}"#;
+    #[derive(serde::Deserialize)]
+    struct Wrapper {
+        probes: Vec<ProbeStatus>,
+    }
+    let parsed: Wrapper = serde_json::from_str(wire).expect("get_vulnerability_scan_history payload");
+    assert_eq!(parsed.probes.len(), 2);
+    assert_eq!(parsed.probes[0].probe_name, "redis-default-noauth");
+    assert_eq!(parsed.probes[0].port, Some(6379));
+    assert_eq!(parsed.probes[0].pass_age_days, Some(5));
+    assert_eq!(parsed.probes[1].port, None);
+    assert_eq!(parsed.probes[1].last_outcome, "inconclusive");
+}
+
+#[test]
 fn quarantine_status_with_and_without_clamav() {
     let raw = r#"{"itemCount":0,"items":[],"quarantineDirectory":"/home/u/.local/share/roamswitch/quarantine","exclusionPaths":["/tmp"],
         "clamav":{"is_installed":false,"engine_version":"Not installed","database_version":"--","last_updated":"--","is_up_to_date":false}}"#;
