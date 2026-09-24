@@ -89,13 +89,13 @@ impl RoamSwitchClient {
     }
 
     /// Runs RoamSwitch's full local Linux security audit (Community/Pro:
-    /// 24 checks — FileVault-equivalent disk encryption, AppArmor, firewall,
+    /// 26 checks — FileVault-equivalent disk encryption, AppArmor, firewall,
     /// Wi-Fi encryption, ARP spoofing, exposed ports, guard configuration).
     pub async fn security_report(&self) -> Result<SecurityReport, RoamSwitchClientError> {
         self.call_tool("get_security_report", serde_json::json!({})).await
     }
 
-    /// Runs the Server Edition audit (30 checks: kernel hardening, Docker
+    /// Runs the Server Edition audit (32 checks: kernel hardening, Docker
     /// and container runtime isolation, kernel CVE exposure, eBPF LSM, etc.)
     /// instead of the desktop client's 24-check audit.
     pub async fn server_security_report(&self) -> Result<SecurityReport, RoamSwitchClientError> {

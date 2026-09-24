@@ -19,7 +19,7 @@ Concretely, RoamSwitch continuously computes:
 - **Network trust** — is the current network one you've marked trusted, and what security level is currently active
 - **ARP spoofing** — gateway MAC fingerprint changes that indicate a man-in-the-middle attempt
 - **Exposed ports** — every TCP port listening beyond `localhost`, cross-referenced against a database of commonly-misconfigured services (Redis, MongoDB, Docker, Memcached, dev servers, local AI inference servers like Ollama/LM Studio) and probed for risky HTTP responses
-- **A local security posture score** (24 checks) — LUKS/dm-crypt disk encryption, AppArmor/SELinux, UEFI Secure Boot, sudo/SSH configuration, kernel `sysctl` hardening, Wi-Fi encryption, ARP spoofing, exposed ports, and malware/download guard configuration
+- **A local security posture score** (26 checks) — LUKS/dm-crypt disk encryption, AppArmor/SELinux, UEFI Secure Boot, sudo/SSH configuration, kernel `sysctl` hardening, Wi-Fi encryption, ARP spoofing, exposed ports, and malware/download guard configuration
 - **Offline URL/phishing analysis**, **secret-leak scanning**, **security log auditing**, **ransomware canary status**, and **quarantine vault status**
 - **Guard runtime state** — VPN tunnel + kill-switch, passive Link Guard block/warn history, Air-Gap and frozen processes, sharing services, Bluetooth and USB guards
 
@@ -154,7 +154,7 @@ impl RoamSwitchClient {
 Every one of `roamswitch-mcp`'s 25 read-only tools is covered (`audit_secrets` twice: `audit_secrets` for text, `audit_secrets_path` for a file or directory). Human-readable text in the responses — titles, details, recommendations, summaries, caveats — follows the language the user selected in RoamSwitch (10 languages; the OS locale when unset). Machine-readable fields (`risk_level`, `verdict`, `kind`, `mode`, ...) never change with the language.
 
 - `new(executable_path, timeout)` — `executable_path: None` searches standard install locations; `timeout` defaults to 30s. On expiry the subprocess is killed (dropped) and the call returns `.TimedOut`.
-- `security_report()` / `server_security_report()` — full local audit; the latter runs the Server Edition's 30-check profile (kernel hardening, container isolation, kernel CVE exposure, eBPF LSM) instead of the desktop client's 24 checks.
+- `security_report()` / `server_security_report()` — full local audit; the latter runs the Server Edition's 32-check profile (kernel hardening, container isolation, kernel CVE exposure, eBPF LSM) instead of the desktop client's 26 checks.
 - `exposed_ports(include_local_only)` — lists listening TCP ports. Ports exposed beyond localhost are always fully audited; pass `true` to also include localhost-only ports (returned without the slower per-port audit).
 - `run_active_vuln_scan()` — opt-in, non-destructive reachability verification against `127.0.0.1` only. Returns `enabled: false` and no findings unless the user has set `active_vuln_scan_enabled: true` in RoamSwitch's own config. `ActiveVulnScanResult` also carries `confirmed_safe` (checks that completed and found nothing) and `inconclusive` (checks that couldn't even complete — unreachable/timeout) as `Vec<ScanCheckOutcome>`, kept separate so an empty `findings` list can't be mistaken for "everything was actually checked."
 - `guard_status()` — current active security level, trusted-network status, and each optional guard's on/off state.

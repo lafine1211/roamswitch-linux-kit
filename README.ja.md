@@ -28,10 +28,10 @@ Linux 向けセキュリティツールです。未信頼ネットワークで�
 - **外部公開ポート** — `localhost` を超えて待ち受けている全 TCP ポート。設定ミスが多い既知
   サービス（Redis、MongoDB、Docker、Memcached、各種開発サーバー、Ollama / LM Studio などの
   ローカル AI 推論サーバー）と突き合わせ、危険な HTTP レスポンスも確認します
-- **ローカルセキュリティ診断スコア（24 項目）** — LUKS / dm-crypt ディスク暗号化、
+- **ローカルセキュリティ診断スコア（26 項目）** — LUKS / dm-crypt ディスク暗号化、
   AppArmor / SELinux、UEFI Secure Boot、sudo / SSH 設定、カーネル `sysctl` 強化、Wi-Fi 暗号化、
   ARP スプーフィング、外部公開ポート、マルウェア・ダウンロード保護の設定
-  （Server Edition では 30 項目のサーバー向けプロファイル）
+  （Server Edition では 32 項目のサーバー向けプロファイル）
 - **オフライン URL / フィッシング解析**、**シークレット漏洩検査**、**セキュリティログ監査**、
   **ランサムウェア・カナリア状態**、**隔離 Vault の状態**
 - **ガードの稼働状態** — VPN トンネルとキルスイッチ、受動リンクガードの遮断 / 警告履歴、
@@ -214,7 +214,7 @@ impl RoamSwitchClient {
   します。`timeout` の既定は 30 秒で、超過するとサブプロセスを kill（drop）して `.TimedOut` を
   返します。
 - `security_report()` / `server_security_report()` — ローカル総合診断。後者は
-  デスクトップクライアントの 24 項目ではなく、Server Edition の 30 項目プロファイル
+  デスクトップクライアントの 26 項目ではなく、Server Edition の 32 項目プロファイル
   （カーネル強化、コンテナ隔離、カーネル CVE 露出、eBPF LSM）を実行します。
 - `exposed_ports(include_local_only)` — 待ち受け中の TCP ポートを列挙します。localhost を
   超えて公開されているものは常に完全監査されます。`true` を渡すと localhost 限定ポートも
