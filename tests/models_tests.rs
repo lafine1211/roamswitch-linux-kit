@@ -56,7 +56,8 @@ fn probe_status_decodes_the_get_vulnerability_scan_history_wrapper_shape() {
     struct Wrapper {
         probes: Vec<ProbeStatus>,
     }
-    let parsed: Wrapper = serde_json::from_str(wire).expect("get_vulnerability_scan_history payload");
+    let parsed: Wrapper =
+        serde_json::from_str(wire).expect("get_vulnerability_scan_history payload");
     assert_eq!(parsed.probes.len(), 2);
     assert_eq!(parsed.probes[0].probe_name, "redis-default-noauth");
     assert_eq!(parsed.probes[0].port, Some(6379));
@@ -73,7 +74,10 @@ fn quarantine_status_with_and_without_clamav() {
     assert!(!st.clamav.unwrap().is_installed);
 
     let raw = r#"{"itemCount":0,"items":[],"quarantineDirectory":"/q","exclusionPaths":[]}"#;
-    assert!(serde_json::from_str::<QuarantineStatus>(raw).expect("without clamav").clamav.is_none());
+    assert!(serde_json::from_str::<QuarantineStatus>(raw)
+        .expect("without clamav")
+        .clamav
+        .is_none());
 }
 
 #[test]
@@ -86,7 +90,10 @@ fn secret_path_result_distinguishes_directory_from_file() {
         other => panic!("expected Directory, got {other:?}"),
     }
     let file = r#"{"hasLeaks":false,"findingCount":0,"findings":[],"summary":"safe"}"#;
-    assert!(matches!(serde_json::from_str::<SecretPathAuditResult>(file).expect("file"), SecretPathAuditResult::File(_)));
+    assert!(matches!(
+        serde_json::from_str::<SecretPathAuditResult>(file).expect("file"),
+        SecretPathAuditResult::File(_)
+    ));
 }
 
 #[test]

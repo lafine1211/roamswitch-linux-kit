@@ -92,7 +92,8 @@ impl RoamSwitchClient {
     /// 26 checks — FileVault-equivalent disk encryption, AppArmor, firewall,
     /// Wi-Fi encryption, ARP spoofing, exposed ports, guard configuration).
     pub async fn security_report(&self) -> Result<SecurityReport, RoamSwitchClientError> {
-        self.call_tool("get_security_report", serde_json::json!({})).await
+        self.call_tool("get_security_report", serde_json::json!({}))
+            .await
     }
 
     /// Runs the Server Edition audit (32 checks: kernel hardening, Docker
@@ -125,8 +126,11 @@ impl RoamSwitchClient {
     /// `127.0.0.1` only (real TCP probes, never a mutating command).
     /// Returns `enabled: false` and no findings unless
     /// `active_vuln_scan_enabled: true` is set in the user's `config.json`.
-    pub async fn run_active_vuln_scan(&self) -> Result<ActiveVulnScanResult, RoamSwitchClientError> {
-        self.call_tool("run_active_vuln_scan", serde_json::json!({})).await
+    pub async fn run_active_vuln_scan(
+        &self,
+    ) -> Result<ActiveVulnScanResult, RoamSwitchClientError> {
+        self.call_tool("run_active_vuln_scan", serde_json::json!({}))
+            .await
     }
 
     /// Current status of every probe `run_active_vuln_scan` has ever
@@ -134,31 +138,42 @@ impl RoamSwitchClient {
     /// staleness surfacing for its heartbeat log. No scheduled runner
     /// exists, so this reflects only however irregularly the scan has
     /// actually been run.
-    pub async fn vulnerability_scan_history(&self) -> Result<Vec<crate::models::ProbeStatus>, RoamSwitchClientError> {
+    pub async fn vulnerability_scan_history(
+        &self,
+    ) -> Result<Vec<crate::models::ProbeStatus>, RoamSwitchClientError> {
         #[derive(serde::Deserialize)]
         struct Wrapper {
             probes: Vec<crate::models::ProbeStatus>,
         }
-        let res: Wrapper = self.call_tool("get_vulnerability_scan_history", serde_json::json!({})).await?;
+        let res: Wrapper = self
+            .call_tool("get_vulnerability_scan_history", serde_json::json!({}))
+            .await?;
         Ok(res.probes)
     }
 
     /// Current active security level, trusted-network status, and each
     /// optional guard's on/off state.
     pub async fn guard_status(&self) -> Result<GuardStatus, RoamSwitchClientError> {
-        self.call_tool("get_guard_status", serde_json::json!({})).await
+        self.call_tool("get_guard_status", serde_json::json!({}))
+            .await
     }
 
     /// Analyzes a URL for phishing, Unicode homograph spoofing, brand
     /// subdomain deception, and high-risk TLDs — fully offline, zero
     /// telemetry. No network fetch of the URL itself is performed.
-    pub async fn audit_url_safety(&self, url: &str) -> Result<LinkAuditReport, RoamSwitchClientError> {
+    pub async fn audit_url_safety(
+        &self,
+        url: &str,
+    ) -> Result<LinkAuditReport, RoamSwitchClientError> {
         self.call_tool("audit_url_safety", serde_json::json!({ "url": url }))
             .await
     }
 
     /// Scans input text for exposed API keys and other secrets.
-    pub async fn audit_secrets(&self, text: &str) -> Result<SecretAuditResult, RoamSwitchClientError> {
+    pub async fn audit_secrets(
+        &self,
+        text: &str,
+    ) -> Result<SecretAuditResult, RoamSwitchClientError> {
         self.call_tool("audit_secrets", serde_json::json!({ "text": text }))
             .await
     }
@@ -188,19 +203,22 @@ impl RoamSwitchClient {
 
     /// Current malware quarantine vault status.
     pub async fn quarantine_status(&self) -> Result<QuarantineStatus, RoamSwitchClientError> {
-        self.call_tool("get_quarantine_status", serde_json::json!({})).await
+        self.call_tool("get_quarantine_status", serde_json::json!({}))
+            .await
     }
 
     /// Ransomware Canary Guard status: monitored decoy files and any recent
     /// tamper incidents.
     pub async fn canary_status(&self) -> Result<CanaryStatus, RoamSwitchClientError> {
-        self.call_tool("get_canary_status", serde_json::json!({})).await
+        self.call_tool("get_canary_status", serde_json::json!({}))
+            .await
     }
 
     /// Audits installed OS packages (dpkg/pacman/rpm, auto-detected) against
     /// RoamSwitch's local, network-free CVE map.
     pub async fn package_cve_scan(&self) -> Result<PackageCveScanResult, RoamSwitchClientError> {
-        self.call_tool("run_package_cve_scan", serde_json::json!({})).await
+        self.call_tool("run_package_cve_scan", serde_json::json!({}))
+            .await
     }
 
     /// Audits language-ecosystem lockfiles (npm/PyPI/crates.io/etc.) under
@@ -210,7 +228,10 @@ impl RoamSwitchClient {
         &self,
         watched_folders: &[PathBuf],
     ) -> Result<PackageCveScanLanguagesResult, RoamSwitchClientError> {
-        let folders: Vec<String> = watched_folders.iter().map(|p| p.to_string_lossy().to_string()).collect();
+        let folders: Vec<String> = watched_folders
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
         self.call_tool(
             "run_package_cve_scan_languages",
             serde_json::json!({ "watchedFolders": folders }),
@@ -230,8 +251,11 @@ impl RoamSwitchClient {
     /// Port Anomaly Guard's incident log: newly-appearing, externally-exposed
     /// listening executables that were auto-blocked (timestamp, process,
     /// PID, port), plus the current auto-/user-isolated port sets.
-    pub async fn get_port_anomaly_incidents(&self) -> Result<PortAnomalyIncidentsSummary, RoamSwitchClientError> {
-        self.call_tool("get_port_anomaly_incidents", serde_json::json!({})).await
+    pub async fn get_port_anomaly_incidents(
+        &self,
+    ) -> Result<PortAnomalyIncidentsSummary, RoamSwitchClientError> {
+        self.call_tool("get_port_anomaly_incidents", serde_json::json!({}))
+            .await
     }
 
     /// Server Edition only. eBPF Runtime Guard's containment history — each
@@ -239,31 +263,42 @@ impl RoamSwitchClient {
     /// host Air-Gap lockdown — plus the current containment status. This is
     /// the primary trigger reason behind an Air-Gap lockdown.
     pub async fn get_ebpf_incidents(&self) -> Result<EbpfIncidentsSummary, RoamSwitchClientError> {
-        self.call_tool("get_ebpf_incidents", serde_json::json!({})).await
+        self.call_tool("get_ebpf_incidents", serde_json::json!({}))
+            .await
     }
 
     /// Server Edition only. Resource Exhaustion / Process Anomaly Guard's
     /// incident log: network-exposed services flagged for sustained RSS
     /// growth or crash-looping, each with a confidence tier (`"possible"` vs
     /// `"correlated"`). A `"possible"` entry is not necessarily an attack.
-    pub async fn get_resource_guard_incidents(&self) -> Result<ResourceGuardIncidentsSummary, RoamSwitchClientError> {
-        self.call_tool("get_resource_guard_incidents", serde_json::json!({})).await
+    pub async fn get_resource_guard_incidents(
+        &self,
+    ) -> Result<ResourceGuardIncidentsSummary, RoamSwitchClientError> {
+        self.call_tool("get_resource_guard_incidents", serde_json::json!({}))
+            .await
     }
 
     /// Server Edition only. File Scan Guard's configuration (ClamAV enabled,
     /// scanned directories, scan / freshclam intervals) and the quarantine
     /// vault it feeds into.
-    pub async fn get_file_scan_guard_status(&self) -> Result<FileScanGuardStatus, RoamSwitchClientError> {
-        self.call_tool("get_file_scan_guard_status", serde_json::json!({})).await
+    pub async fn get_file_scan_guard_status(
+        &self,
+    ) -> Result<FileScanGuardStatus, RoamSwitchClientError> {
+        self.call_tool("get_file_scan_guard_status", serde_json::json!({}))
+            .await
     }
 
     /// Notifications RoamSwitch sent over the past 7 days, most recent first.
-    pub async fn notification_history(&self) -> Result<Vec<NotificationHistoryEntry>, RoamSwitchClientError> {
+    pub async fn notification_history(
+        &self,
+    ) -> Result<Vec<NotificationHistoryEntry>, RoamSwitchClientError> {
         #[derive(serde::Deserialize)]
         struct Wrapper {
             notifications: Vec<NotificationHistoryEntry>,
         }
-        let res: Wrapper = self.call_tool("get_notification_history", serde_json::json!({})).await?;
+        let res: Wrapper = self
+            .call_tool("get_notification_history", serde_json::json!({}))
+            .await?;
         Ok(res.notifications)
     }
 
@@ -275,7 +310,9 @@ impl RoamSwitchClient {
         struct Wrapper {
             events: Vec<TimelineEvent>,
         }
-        let res: Wrapper = self.call_tool("get_incident_timeline", serde_json::json!({})).await?;
+        let res: Wrapper = self
+            .call_tool("get_incident_timeline", serde_json::json!({}))
+            .await?;
         Ok(res.events)
     }
 
@@ -283,7 +320,10 @@ impl RoamSwitchClient {
     /// `node_modules`, `target`, `vendor`, `dist`, `build`, `__pycache__`,
     /// `venv`, and files over 2MB or that look binary), for exposed API keys
     /// and secrets. The path is read by `roamswitch-mcp` with your privileges.
-    pub async fn audit_secrets_path(&self, path: &Path) -> Result<SecretPathAuditResult, RoamSwitchClientError> {
+    pub async fn audit_secrets_path(
+        &self,
+        path: &Path,
+    ) -> Result<SecretPathAuditResult, RoamSwitchClientError> {
         self.call_tool(
             "audit_secrets",
             serde_json::json!({ "path": path.to_string_lossy() }),
@@ -295,37 +335,47 @@ impl RoamSwitchClient {
     /// (WireGuard / Tailscale), whether the tunnel should be / is up, and
     /// whether the kill-switch is armed.
     pub async fn vpn_status(&self) -> Result<VpnStatusSummary, RoamSwitchClientError> {
-        self.call_tool("get_vpn_status", serde_json::json!({})).await
+        self.call_tool("get_vpn_status", serde_json::json!({}))
+            .await
     }
 
     /// Client Edition. Passive Link Guard mode, allow / block lists,
     /// connections awaiting a decision, and block / warn events from the
     /// last 7 days.
     pub async fn link_guard_status(&self) -> Result<LinkGuardStatusSummary, RoamSwitchClientError> {
-        self.call_tool("get_link_guard_status", serde_json::json!({})).await
+        self.call_tool("get_link_guard_status", serde_json::json!({}))
+            .await
     }
 
     /// Client Edition. Whether emergency Air-Gap isolation is active (and
     /// what triggered it), plus processes currently frozen with SIGSTOP.
     pub async fn air_gap_status(&self) -> Result<AirGapStatusSummary, RoamSwitchClientError> {
-        self.call_tool("get_air_gap_status", serde_json::json!({})).await
+        self.call_tool("get_air_gap_status", serde_json::json!({}))
+            .await
     }
 
     /// Client Edition. Automatic sharing-service (SSH / Samba / RDP / VNC)
     /// control: setting, units RoamSwitch stopped, and each unit's state.
-    pub async fn sharing_services_status(&self) -> Result<SharingServicesStatusSummary, RoamSwitchClientError> {
-        self.call_tool("get_sharing_services_status", serde_json::json!({})).await
+    pub async fn sharing_services_status(
+        &self,
+    ) -> Result<SharingServicesStatusSummary, RoamSwitchClientError> {
+        self.call_tool("get_sharing_services_status", serde_json::json!({}))
+            .await
     }
 
     /// Client Edition. Bluetooth Guard setting and live controller state.
-    pub async fn bluetooth_guard_status(&self) -> Result<BluetoothGuardStatusSummary, RoamSwitchClientError> {
-        self.call_tool("get_bluetooth_guard_status", serde_json::json!({})).await
+    pub async fn bluetooth_guard_status(
+        &self,
+    ) -> Result<BluetoothGuardStatusSummary, RoamSwitchClientError> {
+        self.call_tool("get_bluetooth_guard_status", serde_json::json!({}))
+            .await
     }
 
     /// Client Edition. USB storage / BadUSB keyboard guard settings,
     /// connected USB devices, allow-list and pending approvals.
     pub async fn usb_guard_status(&self) -> Result<UsbGuardStatusSummary, RoamSwitchClientError> {
-        self.call_tool("get_usb_guard_status", serde_json::json!({})).await
+        self.call_tool("get_usb_guard_status", serde_json::json!({}))
+            .await
     }
 
     async fn call_tool<T: serde::de::DeserializeOwned>(
@@ -340,14 +390,12 @@ impl RoamSwitchClient {
             .spawn()
             .map_err(|e| RoamSwitchClientError::ProcessLaunchFailed(e.to_string()))?;
 
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| RoamSwitchClientError::ProcessLaunchFailed("failed to open stdin".to_string()))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| RoamSwitchClientError::ProcessLaunchFailed("failed to open stdout".to_string()))?;
+        let mut stdin = child.stdin.take().ok_or_else(|| {
+            RoamSwitchClientError::ProcessLaunchFailed("failed to open stdin".to_string())
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            RoamSwitchClientError::ProcessLaunchFailed("failed to open stdout".to_string())
+        })?;
         let mut reader = BufReader::new(stdout).lines();
 
         let request = serde_json::json!({
@@ -387,11 +435,15 @@ impl RoamSwitchClient {
             .await
             .map_err(|_| RoamSwitchClientError::TimedOut)??;
 
-        let resp_json: serde_json::Value = serde_json::from_str(&response_line)
-            .map_err(|e| RoamSwitchClientError::InvalidResponse(format!("{}: {}", e, response_line)))?;
+        let resp_json: serde_json::Value = serde_json::from_str(&response_line).map_err(|e| {
+            RoamSwitchClientError::InvalidResponse(format!("{}: {}", e, response_line))
+        })?;
 
         if let Some(err) = resp_json.get("error") {
-            let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+            let msg = err
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown error");
             return Err(RoamSwitchClientError::ToolError(msg.to_string()));
         }
 
@@ -402,9 +454,15 @@ impl RoamSwitchClient {
             .and_then(|arr| arr.first())
             .and_then(|item| item.get("text"))
             .and_then(|t| t.as_str())
-            .ok_or_else(|| RoamSwitchClientError::InvalidResponse("missing text content in result".to_string()))?;
+            .ok_or_else(|| {
+                RoamSwitchClientError::InvalidResponse("missing text content in result".to_string())
+            })?;
 
-        serde_json::from_str(content_text)
-            .map_err(|e| RoamSwitchClientError::InvalidResponse(format!("failed to parse payload: {} (raw: {})", e, content_text)))
+        serde_json::from_str(content_text).map_err(|e| {
+            RoamSwitchClientError::InvalidResponse(format!(
+                "failed to parse payload: {} (raw: {})",
+                e, content_text
+            ))
+        })
     }
 }

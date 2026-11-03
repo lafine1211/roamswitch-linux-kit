@@ -53,7 +53,10 @@ async fn test_roamswitch_client() {
         .expect("audit_secrets");
     assert!(secret_report.has_leaks);
 
-    let logs = client.audit_security_logs(24).await.expect("audit_security_logs");
+    let logs = client
+        .audit_security_logs(24)
+        .await
+        .expect("audit_security_logs");
     assert_eq!(logs.hours, 24);
 
     let help = client
@@ -72,7 +75,11 @@ async fn test_roamswitch_client() {
     // until the daily updater installs real data, so only assert the call
     // succeeds and returns a well-formed result.
     let pkg_cve = client.package_cve_scan().await.expect("package_cve_scan");
-    println!("Package CVE scan: map_installed={}, {} finding(s)", pkg_cve.map_installed, pkg_cve.findings.len());
+    println!(
+        "Package CVE scan: map_installed={}, {} finding(s)",
+        pkg_cve.map_installed,
+        pkg_cve.findings.len()
+    );
 
     let lang_cve = client
         .package_cve_scan_languages(&[])
@@ -91,32 +98,63 @@ async fn test_roamswitch_client() {
 
     // The daemon may not have run a scan yet on this host, which is a
     // legitimate empty-default state, not an error.
-    let pa = client.get_port_anomaly_incidents().await.expect("get_port_anomaly_incidents");
-    println!("Port anomaly: baseline_captured={}, {} incident(s)", pa.baseline_captured, pa.incidents.len());
+    let pa = client
+        .get_port_anomaly_incidents()
+        .await
+        .expect("get_port_anomaly_incidents");
+    println!(
+        "Port anomaly: baseline_captured={}, {} incident(s)",
+        pa.baseline_captured,
+        pa.incidents.len()
+    );
 
     // Server Edition only — a Client Edition host has no server-daemon, so
     // this legitimately returns an all-empty "not isolated" default.
-    let ebpf = client.get_ebpf_incidents().await.expect("get_ebpf_incidents");
+    let ebpf = client
+        .get_ebpf_incidents()
+        .await
+        .expect("get_ebpf_incidents");
     assert!(!ebpf.current_status.is_isolated);
-    println!("eBPF: {} incident(s), isolated={}", ebpf.incidents.len(), ebpf.current_status.is_isolated);
+    println!(
+        "eBPF: {} incident(s), isolated={}",
+        ebpf.incidents.len(),
+        ebpf.current_status.is_isolated
+    );
 
     // Server Edition only — legitimately empty on a Client Edition host.
-    let rg = client.get_resource_guard_incidents().await.expect("get_resource_guard_incidents");
+    let rg = client
+        .get_resource_guard_incidents()
+        .await
+        .expect("get_resource_guard_incidents");
     println!("Resource guard: {} incident(s)", rg.incidents.len());
 
-    let fsg = client.get_file_scan_guard_status().await.expect("get_file_scan_guard_status");
+    let fsg = client
+        .get_file_scan_guard_status()
+        .await
+        .expect("get_file_scan_guard_status");
     assert!(!fsg.quarantine.quarantine_directory.is_empty());
 
-    let notifications = client.notification_history().await.expect("notification_history");
+    let notifications = client
+        .notification_history()
+        .await
+        .expect("notification_history");
     println!("Notifications (7 days): {}", notifications.len());
 
-    let timeline = client.get_incident_timeline().await.expect("get_incident_timeline");
+    let timeline = client
+        .get_incident_timeline()
+        .await
+        .expect("get_incident_timeline");
     println!("Timeline: {} event(s)", timeline.len());
 
     // A directory scan of an empty temp dir: well-formed, no leaks.
-    let tmp = std::env::temp_dir().join(format!("roamswitch-linux-kit-test-{}", std::process::id()));
+    let tmp =
+        std::env::temp_dir().join(format!("roamswitch-linux-kit-test-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).expect("temp dir");
-    match client.audit_secrets_path(&tmp).await.expect("audit_secrets_path") {
+    match client
+        .audit_secrets_path(&tmp)
+        .await
+        .expect("audit_secrets_path")
+    {
         roamswitch_linux_kit::SecretPathAuditResult::Directory(d) => assert!(!d.has_leaks),
         other => panic!("expected a directory result, got {other:?}"),
     }
@@ -134,12 +172,22 @@ async fn test_roamswitch_client() {
 
     let ag = client.air_gap_status().await.expect("air_gap_status");
     assert!(ag.auto_release_after_secs > 0);
-    println!("Air-Gap: active={}, frozen={}", ag.active, ag.frozen_processes.len());
+    println!(
+        "Air-Gap: active={}, frozen={}",
+        ag.active,
+        ag.frozen_processes.len()
+    );
 
-    let sharing = client.sharing_services_status().await.expect("sharing_services_status");
+    let sharing = client
+        .sharing_services_status()
+        .await
+        .expect("sharing_services_status");
     assert!(!sharing.summary.is_empty());
 
-    let bt = client.bluetooth_guard_status().await.expect("bluetooth_guard_status");
+    let bt = client
+        .bluetooth_guard_status()
+        .await
+        .expect("bluetooth_guard_status");
     assert_eq!(bt.controller.is_shielded_on_untrusted, bt.guard_enabled);
 
     let usb = client.usb_guard_status().await.expect("usb_guard_status");
