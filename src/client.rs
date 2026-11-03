@@ -7,6 +7,15 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::time::timeout;
 
+/// `{"isServer": b}` for `Some(b)`, `{}` for `None` (the server then uses the
+/// installed edition).
+fn server_arg(is_server: Option<bool>) -> serde_json::Value {
+    match is_server {
+        Some(b) => serde_json::json!({ "isServer": b }),
+        None => serde_json::json!({}),
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum RoamSwitchClientError {
     #[error("RoamSwitch is not installed on this system")]
@@ -25,18 +34,27 @@ pub enum RoamSwitchClientError {
     ToolError(String),
 }
 
-/// A read-only client for RoamSwitch's local Linux security diagnostics.
+/// A client for RoamSwitch's local Linux security diagnostics.
 ///
 /// Every call spawns RoamSwitch's bundled `roamswitch-mcp` binary as a fresh
 /// subprocess and talks to it over stdio using newline-delimited JSON-RPC 2.0
 /// — the same protocol RoamSwitch speaks to Claude Desktop/Code and other
-/// MCP clients. There is no persistent connection, no daemon socket, and no
-/// network I/O anywhere in this crate: nothing is sent anywhere.
+/// MCP clients. This crate keeps no persistent connection and opens no socket
+/// or network connection of its own.
 ///
 /// `RoamSwitchClient` has no API to change RoamSwitch's settings, toggle a
 /// guard, isolate a port, or quarantine a file — that surface doesn't exist
 /// here. Linking this crate gives no way to alter another user's protection
 /// state; only RoamSwitch's own CLI/daemon, driven by the user, can do that.
+///
+/// Most methods only read. Three do more, because the `roamswitch-mcp` tool
+/// behind them does: [`run_active_vuln_scan`](Self::run_active_vuln_scan)
+/// appends to RoamSwitch's scan history,
+/// [`audit_security_logs`](Self::audit_security_logs) updates the log-template
+/// baseline, and [`run_npm_audit_signatures`](Self::run_npm_audit_signatures)
+/// lets npm write its log and cache under `~/.npm`. Only the last one makes
+/// `roamswitch-mcp` contact a remote server (the npm registry), and it is off
+/// unless the user turned it on in RoamSwitch's own config.
 pub struct RoamSwitchClient {
     executable_path: PathBuf,
     timeout_duration: Duration,
@@ -88,17 +106,20 @@ impl RoamSwitchClient {
         Err(RoamSwitchClientError::AppNotInstalled)
     }
 
-    /// Runs RoamSwitch's full local Linux security audit (Community/Pro:
-    /// 26 checks — FileVault-equivalent disk encryption, AppArmor, firewall,
-    /// Wi-Fi encryption, ARP spoofing, exposed ports, guard configuration).
+    /// Runs RoamSwitch's full local Linux security audit for the installed
+    /// edition. The Client Edition audit has 31 checks (disk encryption,
+    /// AppArmor/SELinux, firewall, Wi-Fi encryption, ARP spoofing, exposed
+    /// ports, guard configuration, ...); one more, where the decoy credential
+    /// files were placed, is added while the Client daemon has recorded it.
     pub async fn security_report(&self) -> Result<SecurityReport, RoamSwitchClientError> {
         self.call_tool("get_security_report", serde_json::json!({}))
             .await
     }
 
-    /// Runs the Server Edition audit (32 checks: kernel hardening, Docker
+    /// Runs the Server Edition audit (42 checks: kernel hardening, Docker
     /// and container runtime isolation, kernel CVE exposure, eBPF LSM, etc.)
-    /// instead of the desktop client's 24-check audit.
+    /// instead of the Client Edition's 31-check audit, whichever edition is
+    /// installed.
     pub async fn server_security_report(&self) -> Result<SecurityReport, RoamSwitchClientError> {
         self.call_tool(
             "get_security_report",
@@ -194,11 +215,16 @@ impl RoamSwitchClient {
         query: Option<&str>,
         topic: Option<&str>,
     ) -> Result<KnowledgeSearchResult, RoamSwitchClientError> {
-        self.call_tool(
-            "get_app_help",
-            serde_json::json!({ "query": query, "topic": topic }),
-        )
-        .await
+        // `None` is left out: the input schema types both as string, not null.
+        let mut args = serde_json::Map::new();
+        if let Some(q) = query {
+            args.insert("query".into(), serde_json::json!(q));
+        }
+        if let Some(t) = topic {
+            args.insert("topic".into(), serde_json::json!(t));
+        }
+        self.call_tool("get_app_help", serde_json::Value::Object(args))
+            .await
     }
 
     /// Current malware quarantine vault status.
@@ -240,12 +266,42 @@ impl RoamSwitchClient {
     }
 
     /// Verifies the integrity of ~150 critical system binaries/configs
-    /// against RoamSwitch's persisted baseline (read-only — does not update
-    /// or initialize the baseline; that requires root and 'roamswitch fim
-    /// update'/'init', a mutating operation intentionally not exposed here).
-    /// Errors if no baseline has ever been captured on this host.
+    /// against RoamSwitch's persisted baseline and returns that
+    /// critical-path report. It does not update or initialize that baseline
+    /// (that requires root and 'roamswitch fim update'/'init', a mutating
+    /// operation intentionally not exposed here). Returns a `ToolError` if no
+    /// baseline has ever been captured on this host.
+    ///
+    /// Current `roamswitch-mcp` builds also verify the dependency lockfiles
+    /// of the watched project folders and list who made recent changes; use
+    /// [`verify_fim_full`](Self::verify_fim_full) for those parts. The same
+    /// tool call adds lockfiles of newly watched folders to the lockfile
+    /// baseline and drops those of folders no longer watched (never replacing
+    /// the recorded hash of a lockfile already in it), when the caller may
+    /// write that file.
     pub async fn verify_fim(&self) -> Result<FimReport, RoamSwitchClientError> {
-        self.call_tool("verify_fim", serde_json::json!({})).await
+        Ok(self.verify_fim_full().await?.critical_path_fim)
+    }
+
+    /// [`verify_fim`](Self::verify_fim) with everything the tool returns: the
+    /// critical-path report, the lockfile FIM report (`None` when no project
+    /// folders are configured or Lockfile FIM is off) and the recent changes
+    /// with the process and login behind them (root only). A `roamswitch-mcp`
+    /// that still sends the bare critical-path report is accepted too.
+    pub async fn verify_fim_full(&self) -> Result<FimVerification, RoamSwitchClientError> {
+        let value: serde_json::Value = self.call_tool("verify_fim", serde_json::json!({})).await?;
+        if value.get("criticalPathFim").is_some() {
+            serde_json::from_value(value)
+        } else {
+            serde_json::from_value::<FimReport>(value).map(|r| FimVerification {
+                critical_path_fim: r,
+                lockfile_fim: None,
+                recent_intrusion_context: Vec::new(),
+            })
+        }
+        .map_err(|e| {
+            RoamSwitchClientError::InvalidResponse(format!("failed to parse payload: {e}"))
+        })
     }
 
     /// Port Anomaly Guard's incident log: newly-appearing, externally-exposed
@@ -378,6 +434,348 @@ impl RoamSwitchClient {
             .await
     }
 
+    /// Re-checks earlier `security_report` findings read-only, for use after a
+    /// fix was applied (or to confirm none was needed). Returns, per check, a
+    /// verdict (`stillPresent` / `resolved` / `inconclusive`), a
+    /// language-independent reason code and, when the Linux daemons have
+    /// recorded earlier audits, what changed since. Pass the `check_id`
+    /// values from the report (at most 64 distinct ids are verified); an empty
+    /// slice verifies every item. `is_server: None` uses the installed
+    /// edition, exactly as `security_report` does. Nothing is written and
+    /// nothing is sent to the network.
+    pub async fn verify_security_findings(
+        &self,
+        check_ids: Option<&[&str]>,
+        is_server: Option<bool>,
+    ) -> Result<FindingVerificationReport, RoamSwitchClientError> {
+        let mut args = serde_json::Map::new();
+        if let Some(ids) = check_ids {
+            args.insert("checkIds".into(), serde_json::json!(ids));
+        }
+        if let Some(s) = is_server {
+            args.insert("isServer".into(), serde_json::json!(s));
+        }
+        self.call_tool("verify_security_findings", serde_json::Value::Object(args))
+            .await
+    }
+
+    /// Incoming port-scan (reconnaissance) detections: each confirmed scan
+    /// source with the distinct-port count, a sample of the ports touched and
+    /// whether it was auto-blocked. Server Edition only: its daemon writes the
+    /// log (`port_scan_detect_enabled`, on by default). On the Client Edition,
+    /// or when nothing was detected, the list is empty.
+    pub async fn get_port_scan_incidents(
+        &self,
+    ) -> Result<PortScanIncidentsSummary, RoamSwitchClientError> {
+        self.call_tool("get_port_scan_incidents", serde_json::json!({}))
+            .await
+    }
+
+    /// The SSH brute-force guard's state and history: whether it bans or only
+    /// detects, the sources banned right now (the ban list is root-only, so a
+    /// non-root caller sees only the count) and up to the 200 most recent
+    /// incidents. Server Edition, and the Linux client while sshd is running.
+    /// There is no call here to lift a ban.
+    pub async fn get_ssh_guard_incidents(
+        &self,
+    ) -> Result<SshGuardIncidentsSummary, RoamSwitchClientError> {
+        self.call_tool("get_ssh_guard_incidents", serde_json::json!({}))
+            .await
+    }
+
+    /// Fleet (organization management) status of this device: enrollment,
+    /// applied policy, check-in state and removal reason. Secret-free: no
+    /// enrollment codes, tokens, keys or license data. Fleet has no remote
+    /// command channel, and a device that is not enrolled sends nothing.
+    pub async fn get_fleet_status(&self) -> Result<FleetStatusSummary, RoamSwitchClientError> {
+        self.call_tool("get_fleet_status", serde_json::json!({}))
+            .await
+    }
+
+    /// Searches the local exec/process recorder log (executions with path,
+    /// sanitised argv, ancestry, uid, working directory, container id and
+    /// SHA-256), newest first, and reports the log's hash-chain check. The log
+    /// is root-only: as another user the result has no events and `error`
+    /// explains it.
+    pub async fn search_exec_events(
+        &self,
+        query: &ExecEventQuery,
+    ) -> Result<ExecEventSearch, RoamSwitchClientError> {
+        let args = serde_json::to_value(query)
+            .map_err(|e| RoamSwitchClientError::InvalidResponse(e.to_string()))?;
+        self.call_tool("search_exec_events", args).await
+    }
+
+    /// The recorded ancestry (up to 8 levels) and recorded descendants of a
+    /// process id, built from its latest exec record. A pid with no record,
+    /// or a log that cannot be read (it is root-only), is a
+    /// [`RoamSwitchClientError::ToolError`] carrying the tool's own sentence.
+    pub async fn get_process_tree(&self, pid: u32) -> Result<ProcessTree, RoamSwitchClientError> {
+        let v: serde_json::Value = self
+            .call_tool("get_process_tree", serde_json::json!({ "pid": pid }))
+            .await?;
+        if let Some(e) = v.get("error").and_then(|e| e.as_str()) {
+            return Err(RoamSwitchClientError::ToolError(e.to_string()));
+        }
+        serde_json::from_value(v).map_err(|e| {
+            RoamSwitchClientError::InvalidResponse(format!("failed to parse payload: {e}"))
+        })
+    }
+
+    /// Inventory of `package.json` lifecycle scripts (`preinstall`, `install`,
+    /// `postinstall`, `prepare`) under the given project folders'
+    /// `node_modules`, plus dependency-confusion settings and install-code
+    /// drift. Reads local files only, executes nothing and sends no network
+    /// requests. It is a plain inventory, not a threat verdict.
+    pub async fn run_package_lifecycle_script_scan(
+        &self,
+        watched_folders: &[PathBuf],
+    ) -> Result<PackageLifecycleScriptScanResult, RoamSwitchClientError> {
+        let folders: Vec<String> = watched_folders
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+        self.call_tool(
+            "run_package_lifecycle_script_scan",
+            serde_json::json!({ "watchedFolders": folders }),
+        )
+        .await
+    }
+
+    /// Checks each project folder's `package.json` dependency names for
+    /// names suspiciously close (edit distance 1 or 2) to a well-known npm
+    /// package. Reads local files only and contacts no registry. A
+    /// reference-only heuristic; some findings are false positives.
+    pub async fn run_typosquat_scan(
+        &self,
+        watched_folders: &[PathBuf],
+    ) -> Result<TyposquatScanResult, RoamSwitchClientError> {
+        let folders: Vec<String> = watched_folders
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+        self.call_tool(
+            "run_typosquat_scan",
+            serde_json::json!({ "watchedFolders": folders }),
+        )
+        .await
+    }
+
+    /// Runs `npm audit signatures` in `directory` (an npm project with
+    /// `node_modules`) to verify installed packages' registry signatures.
+    ///
+    /// Unlike every other method of this client, this one sends requests to
+    /// the npm registry (registry.npmjs.org), and it is not read-only: npm
+    /// writes its own run log and cache under `~/.npm`. It is off by default
+    /// and refuses to run (`enabled: false`) unless
+    /// `npm_audit_signatures_enabled` is true in the user's `config.json`. The
+    /// default timeout of this client is 30 seconds, which npm can exceed:
+    /// create the client with a longer one.
+    pub async fn run_npm_audit_signatures(
+        &self,
+        directory: &Path,
+    ) -> Result<NpmAuditSignaturesResult, RoamSwitchClientError> {
+        self.call_tool(
+            "run_npm_audit_signatures",
+            serde_json::json!({ "directory": directory.to_string_lossy() }),
+        )
+        .await
+    }
+
+    /// Static audit of the MCP client configuration files (Claude Desktop,
+    /// Claude Code, Cursor, Windsurf, VS Code, Cline, Gemini CLI, Codex,
+    /// OpenCode, plus the registered project folders): auto-approved tools,
+    /// plaintext remote servers, shell one-liner launchers, unpinned package
+    /// launchers, and so on. Reads files only and sends no network requests.
+    /// Never returns env or header values, arguments or secrets.
+    pub async fn audit_mcp_configs(&self) -> Result<McpConfigAuditPayload, RoamSwitchClientError> {
+        self.call_tool("audit_mcp_configs", serde_json::json!({}))
+            .await
+    }
+
+    /// Static audit of the files that steer AI coding agents (CLAUDE.md,
+    /// AGENTS.md, commands, subagents, skills, Cursor rules, agent memory,
+    /// editor tasks, CI workflows, agent settings): hidden characters,
+    /// instruction-override wording, fetch-and-run, credential references and
+    /// so on. Reads files only and sends no network requests; the text of the
+    /// files is not copied into the answer.
+    pub async fn audit_agent_setup(&self) -> Result<AgentSetupAuditPayload, RoamSwitchClientError> {
+        self.call_tool("audit_agent_setup", serde_json::json!({}))
+            .await
+    }
+
+    /// [`audit_agent_setup`](Self::audit_agent_setup) as a SARIF 2.1.0 log.
+    /// Returned as a [`serde_json::Value`] because SARIF is an external,
+    /// versioned format with its own schema, not a RoamSwitch type.
+    pub async fn audit_agent_setup_sarif(
+        &self,
+    ) -> Result<serde_json::Value, RoamSwitchClientError> {
+        self.call_tool(
+            "audit_agent_setup",
+            serde_json::json!({ "format": "sarif" }),
+        )
+        .await
+    }
+
+    /// Self-check of what RoamSwitch can and cannot see for ATT&CK techniques
+    /// an intruder uses to impair defenses, hide or persist on a Linux host:
+    /// per technique the coverage (`detects` / `partial` / `none`), the
+    /// guards that would notice, the blind spot and whether those guards are
+    /// running now. Reads local state only and executes nothing.
+    /// `is_server: None` uses the installed edition.
+    pub async fn detection_coverage(
+        &self,
+        is_server: Option<bool>,
+    ) -> Result<CoverageReport, RoamSwitchClientError> {
+        self.call_tool("get_detection_coverage", server_arg(is_server))
+            .await
+    }
+
+    /// [`detection_coverage`](Self::detection_coverage) as a MITRE ATT&CK
+    /// Navigator layer (layer format 4.5, enterprise). Returned as a
+    /// [`serde_json::Value`] because the layer is MITRE's external format.
+    pub async fn detection_coverage_navigator(
+        &self,
+        is_server: Option<bool>,
+    ) -> Result<serde_json::Value, RoamSwitchClientError> {
+        let mut args = server_arg(is_server);
+        args["format"] = serde_json::json!("navigator");
+        self.call_tool("get_detection_coverage", args).await
+    }
+
+    /// Active-audit results this device asked a paired RoamSwitch Sensor to
+    /// run against it (newest first, at most 2 are kept). Reads results that
+    /// were already retrieved; requesting an audit or pairing is not possible
+    /// from here. An empty list when the daemon cannot be reached.
+    pub async fn get_sensor_audit_results(
+        &self,
+    ) -> Result<Vec<SensorAuditResult>, RoamSwitchClientError> {
+        #[derive(serde::Deserialize)]
+        struct Wrapper {
+            #[serde(rename = "auditResults")]
+            audit_results: Vec<SensorAuditResult>,
+        }
+        let res: Wrapper = self
+            .call_tool("get_sensor_audit_results", serde_json::json!({}))
+            .await?;
+        Ok(res.audit_results)
+    }
+
+    /// Credential Honeytoken Guard: whether it is enabled, where the decoy
+    /// credential files were planted, how their watcher is doing and the 50
+    /// most recent accesses to a decoy (a real access is a strong signal of
+    /// credential harvesting). Reads local files and process state only;
+    /// opens no daemon socket. `is_server: None` uses the installed edition.
+    pub async fn get_honeytoken_status(
+        &self,
+        is_server: Option<bool>,
+    ) -> Result<HoneytokenStatus, RoamSwitchClientError> {
+        self.call_tool("get_honeytoken_status", server_arg(is_server))
+            .await
+    }
+
+    /// Entropy-based ransomware detection: whether it is on, with which
+    /// settings, and the 50 most recent bursts (20 files that look encrypted
+    /// within 5 seconds, written by one process). Reads local files and
+    /// process state only; opens no daemon socket. `is_server: None` uses the
+    /// installed edition.
+    pub async fn get_ransomware_entropy_guard_status(
+        &self,
+        is_server: Option<bool>,
+    ) -> Result<EntropyGuardStatus, RoamSwitchClientError> {
+        self.call_tool("get_ransomware_entropy_guard_status", server_arg(is_server))
+            .await
+    }
+
+    /// The RoamSwitch Sensor's picture of its LAN segment: gateway, device
+    /// counts, packet capture state and coverage gaps, paired endpoints, IoT
+    /// baselines, weak unmanaged devices and threat counts. Talks only to the
+    /// local Unix socket of a Sensor running on this same host (one read-only
+    /// request) and sends no network requests. With no Sensor on the host the
+    /// answer has `available: false` and a `reason`; it is not an error.
+    pub async fn get_lan_sensor_overview(
+        &self,
+    ) -> Result<SensorReply<LanOverview>, RoamSwitchClientError> {
+        self.call_tool("get_lan_sensor_overview", serde_json::json!({}))
+            .await
+    }
+
+    /// The LAN threats a local RoamSwitch Sensor knows, newest first (rogue
+    /// DHCP server, ARP spoofing, DNS tunneling, weak unmanaged devices, ...).
+    /// `limit` is 1 to 500 (default 200); `min_severity` is one of `"info"`
+    /// (default), `"medium"`, `"high"`, `"critical"`; a value outside that
+    /// range is a tool error. Same socket-only behavior as
+    /// [`get_lan_sensor_overview`](Self::get_lan_sensor_overview). The list is not a
+    /// complete log, and with `coverage_gaps` not empty an empty list does not
+    /// mean nothing is wrong.
+    pub async fn get_lan_network_threats(
+        &self,
+        limit: Option<u32>,
+        min_severity: Option<&str>,
+    ) -> Result<SensorReply<LanThreats>, RoamSwitchClientError> {
+        let mut args = serde_json::Map::new();
+        if let Some(l) = limit {
+            args.insert("limit".into(), serde_json::json!(l));
+        }
+        if let Some(s) = min_severity {
+            args.insert("minSeverity".into(), serde_json::json!(s));
+        }
+        self.call_tool("get_lan_network_threats", serde_json::Value::Object(args))
+            .await
+    }
+
+    /// How a local account could reach root, from the separately installed
+    /// PathScope (run as the calling user with fixed arguments; no shell, no
+    /// network, nothing is applied). `start` is the account to analyse
+    /// (default: the calling user; another account needs root or an
+    /// administrator). With no PathScope installed the answer has
+    /// `available: false`; it is not an error. When `analysis.complete` is
+    /// `false`, zero paths does not mean the account is safe.
+    pub async fn get_privilege_escalation_paths(
+        &self,
+        start: Option<&str>,
+    ) -> Result<PrivilegeEscalationPaths, RoamSwitchClientError> {
+        let args = match start {
+            Some(user) => serde_json::json!({ "start": user }),
+            None => serde_json::json!({}),
+        };
+        self.call_tool("get_privilege_escalation_paths", args).await
+    }
+
+    /// [`get_privilege_escalation_paths`](Self::get_privilege_escalation_paths)
+    /// for every account in the Server Edition's `agent_users`
+    /// (`checkAgentUsers: true`). Needs root, reads `/etc/roamswitch/server.conf`
+    /// and cannot be combined with `start`; as another user the answer has
+    /// `reason: "not_permitted"`.
+    pub async fn get_privilege_escalation_paths_for_agent_users(
+        &self,
+    ) -> Result<PrivilegeEscalationPaths, RoamSwitchClientError> {
+        self.call_tool(
+            "get_privilege_escalation_paths",
+            serde_json::json!({ "checkAgentUsers": true }),
+        )
+        .await
+    }
+
+    /// Summary of attacks found in this host's web server, SSH and auth logs,
+    /// from the separately installed AccessScope (run as the calling user with
+    /// fixed arguments; no shell, no network, no LLM; privilege is never
+    /// raised). `since` is the window, 1 to 90 days written like `"24h"`
+    /// (default) or `"7d"`; anything else is a tool error. With no AccessScope
+    /// installed the answer has `available: false`; it is not an error. When
+    /// `complete` is `false`, zero findings does not mean the host is safe.
+    pub async fn get_access_log_report(
+        &self,
+        since: Option<&str>,
+    ) -> Result<AccessLogReport, RoamSwitchClientError> {
+        let mut args = serde_json::Map::new();
+        if let Some(s) = since {
+            args.insert("since".into(), serde_json::json!(s));
+        }
+        self.call_tool("get_access_log_report", serde_json::Value::Object(args))
+            .await
+    }
+
     async fn call_tool<T: serde::de::DeserializeOwned>(
         &self,
         tool_name: &str,
@@ -445,6 +843,30 @@ impl RoamSwitchClient {
                 .and_then(|m| m.as_str())
                 .unwrap_or("unknown error");
             return Err(RoamSwitchClientError::ToolError(msg.to_string()));
+        }
+
+        // A tool that refuses a request (a bad argument, an unknown tool) answers
+        // with a normal result flagged `isError`. Its text is `{"error": "..."}` or
+        // plain text; it is not the payload of the tool.
+        if resp_json
+            .get("result")
+            .and_then(|r| r.get("isError"))
+            .and_then(|e| e.as_bool())
+            == Some(true)
+        {
+            let text = resp_json
+                .get("result")
+                .and_then(|r| r.get("content"))
+                .and_then(|c| c.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|item| item.get("text"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("unknown error");
+            let msg = serde_json::from_str::<serde_json::Value>(text)
+                .ok()
+                .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
+                .unwrap_or_else(|| text.to_string());
+            return Err(RoamSwitchClientError::ToolError(msg));
         }
 
         let content_text = resp_json

@@ -1,11 +1,11 @@
 [package]
 name = "roamswitch-linux-kit"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Lafine Systems Design <contact@lafine.net>"]
 license = "MIT"
 repository = "https://github.com/lafine1211/roamswitch-linux-kit"
-description = "Read-only async client for RoamSwitch's local Linux network security diagnostics"
+description = "Async client for RoamSwitch's local Linux network security diagnostics; has no API that changes a RoamSwitch setting"
 readme = "README.md"
 keywords = ["roamswitch", "security", "diagnostics", "client"]
 categories = ["api-bindings"]
