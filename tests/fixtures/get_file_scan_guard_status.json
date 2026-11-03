@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"clamavEnabled\":false,\"freshclamIntervalSecs\":7200,\"lastRun\":null,\"quarantine\":{\"exclusionPaths\":[\"/tmp\",\"/proc\",\"/sys\"],\"itemCount\":0,\"items\":[],\"quarantineDirectory\":\"/var/lib/roamswitch/quarantine\"},\"scanDirs\":[],\"scanIntervalSecs\":86400}","type":"text"}]}}

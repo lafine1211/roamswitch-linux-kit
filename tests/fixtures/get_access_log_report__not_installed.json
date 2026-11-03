@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"analyzed\":false,\"available\":false,\"mcpNote\":\"AccessScope is not installed on this host (no /usr/bin/accessscope), so nothing was analysed.\",\"reason\":\"not_installed\"}","type":"text"}]}}

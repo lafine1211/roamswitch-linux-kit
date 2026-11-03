@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"scannedFolderCount\":1,\"findings\":[{\"dependencyName\":\"expres\",\"suspectedTarget\":\"express\",\"distance\":1,\"projectDir\":\"/home/alice/proj\"}]}","type":"text"}]}}

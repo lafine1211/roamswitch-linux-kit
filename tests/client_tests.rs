@@ -4,27 +4,27 @@
 //! installed on the machine running the tests — CI without RoamSwitch
 //! installed, or a contributor's dev box, should still pass `cargo test`.
 
-use roamswitch_linux_kit::RoamSwitchClient;
+use roamswitch_linux_kit::{ExecEventQuery, RoamSwitchClient, RoamSwitchClientError};
 use std::path::PathBuf;
 
-#[tokio::test]
-async fn test_roamswitch_client() {
-    // `ROAMSWITCH_MCP_TEST_BIN` is a local-dev-only override (e.g. a sibling
-    // `roamswitch-linux` checkout's freshly built binary) so this test can
-    // exercise new tools before a packaged `/usr/bin/roamswitch-mcp` catches
-    // up. Not read by any non-test code.
-    let candidate_paths: Vec<PathBuf> = std::env::var("ROAMSWITCH_MCP_TEST_BIN")
+/// `ROAMSWITCH_MCP_TEST_BIN` is a local-dev-only override (e.g. a sibling
+/// `roamswitch-linux` checkout's freshly built binary) so these tests can
+/// exercise new tools before a packaged `/usr/bin/roamswitch-mcp` catches
+/// up. Not read by any non-test code.
+fn find_binary() -> Option<PathBuf> {
+    std::env::var("ROAMSWITCH_MCP_TEST_BIN")
         .map(PathBuf::from)
         .into_iter()
         .chain([
             PathBuf::from("/usr/bin/roamswitch-mcp"),
             PathBuf::from("/usr/local/bin/roamswitch-mcp"),
         ])
-        .collect();
+        .find(|p| p.exists())
+}
 
-    let binary_path = candidate_paths.into_iter().find(|p| p.exists());
-
-    let Some(bin) = binary_path else {
+#[tokio::test]
+async fn test_roamswitch_client() {
+    let Some(bin) = find_binary() else {
         println!("roamswitch-mcp binary not found, skipping client integration test");
         return;
     };
@@ -89,11 +89,15 @@ async fn test_roamswitch_client() {
     assert!(lang_cve.findings.is_empty());
 
     // A baseline may not exist yet on this host (never `sudo roamswitch fim
-    // update`'d) — verify_fim() errors rather than fabricating a report,
-    // which is a legitimate outcome, not a bug, so tolerate either result.
-    match client.verify_fim().await {
-        Ok(report) => assert!(report.total_monitored > 0),
-        Err(e) => println!("verify_fim returned an error (no baseline provisioned?): {e}"),
+    // update`'d) — the tool then answers with a tool error rather than
+    // fabricating a report, which is a legitimate outcome, not a bug. Any
+    // other error (for example a response this crate cannot decode) is a failure.
+    match client.verify_fim_full().await {
+        Ok(full) => assert!(full.critical_path_fim.total_monitored > 0),
+        Err(RoamSwitchClientError::ToolError(e)) => {
+            println!("verify_fim returned a tool error (no baseline provisioned?): {e}")
+        }
+        Err(e) => panic!("verify_fim: {e}"),
     }
 
     // The daemon may not have run a scan yet on this host, which is a
@@ -192,4 +196,160 @@ async fn test_roamswitch_client() {
 
     let usb = client.usb_guard_status().await.expect("usb_guard_status");
     assert!(!usb.summary.is_empty());
+}
+
+/// The tools added in 0.2.0 against the real `roamswitch-mcp`. Which of them
+/// have anything to report depends on the host (root, Server Edition, a
+/// Sensor, PathScope or AccessScope installed), so most assertions only say
+/// the answer is well formed and says what it must say when something is
+/// missing. A decode failure, or the server refusing an argument, fails the test.
+#[tokio::test]
+async fn test_roamswitch_client_tools_added_in_0_2_0() {
+    let Some(bin) = find_binary() else {
+        println!("roamswitch-mcp binary not found, skipping client integration test");
+        return;
+    };
+    let client = RoamSwitchClient::new(Some(bin), None).expect("client creation");
+
+    let v = client
+        .verify_security_findings(Some(&["luks_encryption", "no_such_check"]), None)
+        .await
+        .expect("verify_security_findings");
+    assert_eq!(v.results.len(), 2);
+    assert_eq!(v.results[1].reason, "unknown_check_id");
+
+    let all = client
+        .verify_security_findings(None, Some(false))
+        .await
+        .expect("verify_security_findings (all)");
+    assert!(all.results.len() > 10);
+
+    let ps = client
+        .get_port_scan_incidents()
+        .await
+        .expect("get_port_scan_incidents");
+    println!("Port scans: {}", ps.incidents.len());
+    let ssh = client
+        .get_ssh_guard_incidents()
+        .await
+        .expect("get_ssh_guard_incidents");
+    println!(
+        "SSH guard: running={}, {} incident(s)",
+        ssh.running,
+        ssh.incidents.len()
+    );
+
+    let fleet = client.get_fleet_status().await.expect("get_fleet_status");
+    assert!(!fleet.remote_command_channel);
+
+    // The exec log is root-only and may not exist; either way the answer is well formed.
+    let q = ExecEventQuery {
+        limit: Some(5),
+        since_minutes: Some(60),
+        ..Default::default()
+    };
+    let events = client
+        .search_exec_events(&q)
+        .await
+        .expect("search_exec_events");
+    assert!(events.events.len() <= 5);
+    if events.events.is_empty() && events.error.is_none() {
+        println!("exec log is readable and has nothing in the last hour");
+    }
+    match client.get_process_tree(1).await {
+        Ok(tree) => assert_eq!(tree.tree.pid, 1),
+        Err(RoamSwitchClientError::ToolError(e)) => println!("process tree: {e}"),
+        Err(e) => panic!("get_process_tree: {e}"),
+    }
+
+    let tmp = std::env::temp_dir().join(format!(
+        "roamswitch-linux-kit-test-0-2-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&tmp).expect("temp dir");
+    let scripts = client
+        .run_package_lifecycle_script_scan(std::slice::from_ref(&tmp))
+        .await
+        .expect("run_package_lifecycle_script_scan");
+    assert_eq!(scripts.scanned_folder_count, 1);
+    assert!(scripts.findings.is_empty());
+    let typo = client
+        .run_typosquat_scan(std::slice::from_ref(&tmp))
+        .await
+        .expect("run_typosquat_scan");
+    assert_eq!(typo.scanned_folder_count, 1);
+    assert!(typo.findings.is_empty());
+
+    // Off by default: with the default config this answers `enabled: false` and sends nothing.
+    // A host that turned it on would run npm against the registry, so do not call it there.
+    // (It is covered offline in tools_tests.rs.)
+
+    let mcp = client.audit_mcp_configs().await.expect("audit_mcp_configs");
+    assert_eq!(mcp.scanned_file_count, mcp.scanned_files.len());
+    let agent = client.audit_agent_setup().await.expect("audit_agent_setup");
+    assert_eq!(agent.scanned_file_count, agent.scanned_files.len());
+    let sarif = client
+        .audit_agent_setup_sarif()
+        .await
+        .expect("audit_agent_setup_sarif");
+    assert_eq!(sarif["version"], "2.1.0");
+
+    let cov = client
+        .detection_coverage(None)
+        .await
+        .expect("detection_coverage");
+    assert!(!cov.techniques.is_empty());
+    assert_eq!(cov.summary.total, cov.techniques.len());
+    let nav = client
+        .detection_coverage_navigator(Some(true))
+        .await
+        .expect("detection_coverage_navigator");
+    assert_eq!(nav["domain"], "enterprise-attack");
+
+    let sensor_results = client
+        .get_sensor_audit_results()
+        .await
+        .expect("get_sensor_audit_results");
+    println!("Sensor audit results: {}", sensor_results.len());
+    let ht = client
+        .get_honeytoken_status(None)
+        .await
+        .expect("get_honeytoken_status");
+    assert!(ht.edition == "client" || ht.edition == "server");
+    let eg = client
+        .get_ransomware_entropy_guard_status(None)
+        .await
+        .expect("get_ransomware_entropy_guard_status");
+    assert!(eg.edition == "client" || eg.edition == "server");
+
+    let overview = client
+        .get_lan_sensor_overview()
+        .await
+        .expect("get_lan_sensor_overview");
+    assert_eq!(overview.available, overview.data.is_some());
+    let threats = client
+        .get_lan_network_threats(Some(10), Some("medium"))
+        .await
+        .expect("get_lan_network_threats");
+    assert_eq!(threats.available, threats.data.is_some());
+    match client.get_lan_network_threats(Some(501), None).await {
+        Err(RoamSwitchClientError::ToolError(_)) => {}
+        other => panic!("a limit above 500 must be a tool error, got {other:?}"),
+    }
+
+    let pe = client
+        .get_privilege_escalation_paths(None)
+        .await
+        .expect("get_privilege_escalation_paths");
+    assert_eq!(pe.analyzed, pe.reason.is_none());
+    let log = client
+        .get_access_log_report(Some("24h"))
+        .await
+        .expect("get_access_log_report");
+    assert_eq!(log.analyzed, log.report.is_some());
+    match client.get_access_log_report(Some("91d")).await {
+        Err(RoamSwitchClientError::ToolError(_)) => {}
+        other => panic!("91d must be a tool error, got {other:?}"),
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
 }

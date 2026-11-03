@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"directory\":\"/home/alice/proj\",\"enabled\":true,\"exitCode\":1,\"hasIssues\":true,\"rawOutput\":\"audited 3 packages in 1s\\n\\n1 package has an invalid registry signature:\\n\\n  evil-pkg@1.2.3 (https://registry.npmjs.org/evil-pkg/-/evil-pkg-1.2.3.tgz)\\n\"}","type":"text"}]}}

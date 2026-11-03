@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"error\":\"FIM verification failed: FIM baseline DB not found at \\\"/var/lib/roamswitch/fim.db\\\"\"}","type":"text"}],"isError":true}}

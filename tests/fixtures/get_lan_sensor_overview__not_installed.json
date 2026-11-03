@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"available\":false,\"mcpNote\":\"The RoamSwitch Sensor is not on this host: its socket does not exist.\",\"reason\":\"not_installed\"}","type":"text"}]}}

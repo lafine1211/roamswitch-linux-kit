@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"clamav\":{\"database_version\":\"--\",\"engine_version\":\"Not installed\",\"is_installed\":false,\"is_up_to_date\":false,\"last_updated\":\"--\"},\"exclusionPaths\":[\"/tmp\",\"/proc\",\"/sys\"],\"itemCount\":0,\"items\":[],\"quarantineDirectory\":\"/var/lib/roamswitch/quarantine\"}","type":"text"}]}}

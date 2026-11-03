@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"enabled\":false,\"scannedTargetCount\":0,\"findings\":[],\"confirmedSafe\":[],\"inconclusive\":[],\"message\":\"Active vulnerability verification is disabled by default. Enable \\\"Active Vulnerability Verification\\\" in Settings before running it.\"}","type":"text"}]}}

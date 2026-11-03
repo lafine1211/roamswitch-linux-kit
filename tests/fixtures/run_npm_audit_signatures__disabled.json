@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"enabled\":false,\"message\":\"npm signature verification is disabled by default. Enable it from the \\\"Package CVE Scan\\\" tab in the GTK app (npm_audit_signatures_enabled in config.json).\"}","type":"text"}]}}

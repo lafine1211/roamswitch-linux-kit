@@ -1,0 +1,1 @@
+{"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"originalURL\":\"https://www.google.com\",\"finalURL\":\"https://www.google.com\",\"redirectChain\":[],\"domain\":\"www.google.com\",\"score\":100,\"riskLevel\":\"safe\",\"isHTTPS\":true,\"riskFactors\":[],\"verdict\":\"allow\"}","type":"text"}]}}
